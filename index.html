@@ -1,0 +1,951 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="description" content="Mapa interactivo de cómo se autentica un agente de IA en Microsoft Entra ID: nueve métodos, el deber ser y qué pasa si no.">
+<style>[hidden]{display:none!important} body{margin:0}</style>
+<title>AgentWhoAmI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+</head>
+<body>
+<style>
+/* Layout: mesa de credenciales. Métodos arriba; diagrama de secuencia a la izquierda; a la derecha el inspector del paso (deber ser / ¿y si no?) y el simulador de Conditional Access; abajo radio de impacto, rastro, matriz y referencia. */
+:root{
+  --bg:#EDF0F5; --surface:#FFFFFF; --sunk:#E4E8EF; --ink:#141A2E; --muted:#5A6478; --line:#C9D0DC;
+  --app:#5B3FD1; --app-soft:#E7E2FB; --user:#0A7A6C; --user-soft:#D5EFEA; --tok:#A8650A; --tok-soft:#F7EAD2;
+  --bad:#B42F2F; --bad-soft:#F7DEDC; --good:#0F7A45; --good-soft:#D8F0E2; --mid:#8C6A00; --mid-soft:#F4EBC8;
+  --f-disp:"IBM Plex Sans Condensed","Arial Narrow",ui-sans-serif,system-ui,sans-serif;
+  --f-ui:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E1220; --surface:#161B2C; --sunk:#111626; --ink:#E4E8F3; --muted:#9099B0; --line:#2A3148;
+  --app:#A795FF; --app-soft:#262046; --user:#45C9B5; --user-soft:#123430; --tok:#F0B254; --tok-soft:#3A2B12;
+  --bad:#FF7A72; --bad-soft:#3D1E1E; --good:#4FD08B; --good-soft:#123322; --mid:#E6C75A; --mid-soft:#352D10; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E1220; --surface:#161B2C; --sunk:#111626; --ink:#E4E8F3; --muted:#9099B0; --line:#2A3148;
+  --app:#A795FF; --app-soft:#262046; --user:#45C9B5; --user-soft:#123430; --tok:#F0B254; --tok-soft:#3A2B12;
+  --bad:#FF7A72; --bad-soft:#3D1E1E; --good:#4FD08B; --good-soft:#123322; --mid:#E6C75A; --mid-soft:#352D10; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-ui);font-size:14px;line-height:1.5}
+.wrap{max-width:1380px;margin:0 auto;padding-block:20px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:14px}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,[tabindex]:focus-visible,input:focus-visible+span{outline:2px solid var(--app);outline-offset:2px}
+header.top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:10px 24px}
+h1{margin:0;font:700 30px/1.05 var(--f-disp);letter-spacing:-.01em}
+h1 .q{color:var(--tok)}
+.lede{margin:4px 0 0;color:var(--muted);max-width:74ch;text-wrap:pretty}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.methods{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:6px}
+@media (min-width:1180px){.methods{grid-template-columns:repeat(9,minmax(0,1fr))}}
+.m{border:1px solid var(--line);background:var(--surface);border-radius:7px;padding:8px 10px 9px;text-align:left;display:grid;gap:4px;align-content:start}
+.m b{font:600 14px/1.2 var(--f-disp);letter-spacing:.01em}
+.m small{color:var(--muted);font-size:11.5px;line-height:1.3;display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px}
+.kind{font:600 9.5px var(--f-mono);letter-spacing:.06em;text-transform:uppercase;padding:1px 5px;border-radius:3px}
+.kind.app{background:var(--app-soft);color:var(--app)} .kind.user{background:var(--user-soft);color:var(--user)} .kind.mix{background:var(--tok-soft);color:var(--tok)}
+.preview{font:600 9.5px var(--f-mono);color:var(--tok);border:1px solid var(--tok);border-radius:3px;padding:0 4px}
+.m[aria-selected="true"]{border-color:var(--ink);box-shadow:inset 0 -3px 0 var(--tok)}
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.ctrls{display:flex;gap:4px}
+.ctrls button{border:1px solid var(--line);background:var(--sunk);border-radius:5px;min-width:36px;height:32px;padding:0 10px;font-weight:600}
+.ctrls button.primary{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.counter{font:12.5px var(--f-mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.variants{display:flex;flex-wrap:wrap;gap:4px}
+.var{border:1px solid var(--line);background:var(--sunk);border-radius:5px;padding:5px 9px;font-size:12.5px}
+.var[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.var.bad[aria-pressed="false"]{border-color:var(--bad);color:var(--bad);background:var(--bad-soft)}
+.var.bad[aria-pressed="true"]{background:var(--bad);border-color:var(--bad)}
+.who{margin-left:auto;font-size:13px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.who span{color:var(--muted)}
+.who strong{font-family:var(--f-mono);font-size:12.5px;padding:3px 8px;border-radius:4px;background:var(--sunk)}
+.grid{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:14px;align-items:start}
+@media (max-width:1020px){.grid{grid-template-columns:minmax(0,1fr)}}
+.col{display:grid;gap:14px;min-width:0}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;min-width:0}
+.panel>h2{margin:0;font:600 11.5px var(--f-ui);text-transform:uppercase;letter-spacing:.09em;color:var(--muted);padding:11px 12px 0}
+.seq{overflow-x:auto;padding:4px 6px 8px}
+.seq svg{display:block;width:100%;min-width:640px;height:auto}
+.lane-h rect{fill:var(--sunk);stroke:var(--line)}
+.lane-h text{font:600 12.5px var(--f-disp);fill:var(--ink)}
+.lane-h .sub{font:400 10.5px var(--f-ui);fill:var(--muted)}
+.lane-l{stroke:var(--line);stroke-dasharray:3 4}
+.msg line,.msg path{stroke:var(--muted);stroke-width:1.3;fill:none;opacity:.45}
+.msg text{font:500 11.5px var(--f-ui);fill:var(--muted);opacity:.6}
+.msg .n{font:600 10.5px var(--f-mono)}
+.msg.done line,.msg.done path{opacity:.8} .msg.done text{opacity:.9}
+.msg.cur line,.msg.cur path{stroke:var(--tok);stroke-width:2.4;opacity:1;stroke-dasharray:7 5;animation:flow .9s linear infinite}
+.msg.cur text{fill:var(--ink);opacity:1;font-weight:600}
+.msg.cur .n{fill:var(--tok)}
+.msg.danger.cur line,.msg.danger.cur path{stroke:var(--bad)} .msg.danger.cur .n{fill:var(--bad)}
+.msg.block.cur line,.msg.block.cur path{stroke:var(--good)} .msg.block.cur .n{fill:var(--good)}
+.msg.danger.done line{stroke:var(--bad)} .msg.block.done line{stroke:var(--good)}
+.msg.skip line,.msg.skip path{opacity:.18;stroke-dasharray:2 4} .msg.skip text{opacity:.3;text-decoration:line-through}
+.msg .hit{fill:transparent;stroke:none;cursor:pointer}
+.ca-mark{font:600 9.5px var(--f-mono);fill:var(--surface)}
+.ca-pill{fill:var(--app)} .ca-pill.block{fill:var(--bad)} .ca-pill.na{fill:var(--muted)}
+.pkt{fill:var(--tok)}
+@keyframes flow{to{stroke-dashoffset:-24}}
+@media (prefers-reduced-motion:reduce){.msg.cur line,.msg.cur path{animation:none}.pkt{display:none}}
+.insp{padding:10px 12px 14px;display:grid;gap:10px}
+.itabs{display:flex;flex-wrap:wrap;gap:2px;border-bottom:1px solid var(--line);margin:8px 12px 0}
+.itab{border:0;background:none;padding:6px 9px;font-size:12.5px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+.itab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--tok);font-weight:600}
+.itab.ifnot{color:var(--bad)} .itab.ifnot[aria-selected="true"]{border-bottom-color:var(--bad)}
+.itab[disabled]{opacity:.35;cursor:default}
+.step-t{font:600 17px/1.25 var(--f-disp);margin:0;text-wrap:balance}
+.step-d{margin:0;text-wrap:pretty}
+.flag{font-size:12.5px;padding:7px 9px;border-radius:5px;line-height:1.4}
+.flag.danger{background:var(--bad-soft);color:var(--bad)} .flag.block{background:var(--good-soft);color:var(--good)} .flag.note{background:var(--sunk);color:var(--muted)}
+.cred{border:1px solid var(--tok);border-radius:8px;overflow:hidden;background:var(--surface)}
+.cred-h{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px;background:var(--tok-soft);color:var(--tok);font:600 11px var(--f-mono);letter-spacing:.05em;text-transform:uppercase}
+.cred-h em{font-style:normal;text-transform:none;letter-spacing:0;font-weight:400}
+.claims{margin:0;padding:6px 0;display:grid}
+.claim{display:grid;grid-template-columns:110px minmax(0,1fr);gap:2px 10px;padding:4px 10px;font:12.5px/1.4 var(--f-mono)}
+.claim dt{color:var(--muted)} .claim dd{margin:0;overflow-wrap:anywhere}
+.claim.k{background:var(--sunk)} .claim.k dt{color:var(--tok);font-weight:600}
+.claim .why{grid-column:2;font:12px/1.4 var(--f-ui);color:var(--muted)}
+.claim.app dd{color:var(--app)} .claim.user dd{color:var(--user)}
+.empty{font-size:12.5px;color:var(--muted);border:1px dashed var(--line);border-radius:8px;padding:10px}
+pre{margin:0;background:var(--sunk);border-radius:6px;padding:9px 10px;font:12px/1.5 var(--f-mono);overflow-x:auto;white-space:pre}
+pre .k{color:var(--app)} pre .v{color:var(--tok)} pre .e{color:var(--bad)}
+.checks{display:grid;gap:6px;margin:0;padding:0;list-style:none}
+.checks li{display:grid;grid-template-columns:18px minmax(0,1fr);gap:2px 8px;font-size:12.8px;padding:7px 9px;border-radius:6px;background:var(--sunk)}
+.checks li b{font-weight:600} .checks li .ok{color:var(--good);font-weight:700} .checks li .no{grid-column:2;color:var(--bad);font-size:12.3px}
+.ifnot-box{display:grid;gap:8px}
+.ifnot-box .pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+@media (max-width:520px){.ifnot-box .pair{grid-template-columns:minmax(0,1fr)}}
+.pair div{border-radius:6px;padding:8px 10px;font-size:12.8px}
+.pair .should{background:var(--good-soft)} .pair .should h4{color:var(--good)}
+.pair .not{background:var(--bad-soft)} .pair .not h4{color:var(--bad)}
+.pair h4{margin:0 0 3px;font:600 11px var(--f-ui);text-transform:uppercase;letter-spacing:.07em}
+.ca{padding:10px 12px 14px;display:grid;gap:10px}
+.ca-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+@media (max-width:520px){.ca-grid{grid-template-columns:minmax(0,1fr)}}
+.ca fieldset{border:1px solid var(--line);border-radius:6px;margin:0;padding:6px 10px 8px;display:grid;gap:5px;min-width:0}
+.ca legend{font:600 11px var(--f-ui);text-transform:uppercase;letter-spacing:.07em;color:var(--muted);padding:0 4px}
+.sw{display:flex;align-items:center;gap:8px;font-size:12.8px;cursor:pointer}
+.sw input{position:absolute;opacity:0;width:1px;height:1px}
+.sw span{flex:none;width:30px;height:17px;border-radius:9px;background:var(--line);position:relative;transition:background .15s}
+.sw span::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:var(--surface);transition:left .15s}
+.sw input:checked+span{background:var(--app)} .sw input:checked+span::after{left:15px}
+.sw.na{opacity:.45}
+.seg{display:flex;gap:3px;flex-wrap:wrap}
+.seg button{border:1px solid var(--line);background:var(--sunk);border-radius:4px;padding:2px 8px;font-size:12px}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.ca-row{display:grid;gap:3px;font-size:12.8px}
+.ca-res{border-radius:6px;padding:9px 10px;font-size:13px;display:grid;gap:3px}
+.ca-res.ok{background:var(--good-soft);color:var(--good)} .ca-res.block{background:var(--bad-soft);color:var(--bad)} .ca-res.na{background:var(--mid-soft);color:var(--mid)}
+.ca-res b{font-family:var(--f-mono);font-size:12.5px}
+.ca-res small{color:var(--ink);opacity:.85}
+.lower{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+@media (max-width:1020px){.lower{grid-template-columns:minmax(0,1fr)}}
+.atks{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px 0}
+.atk{border:1px solid var(--line);background:var(--sunk);border-radius:20px;padding:5px 12px;font-size:12.5px}
+.atk[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.impact{padding:10px 12px 14px;display:grid;gap:10px}
+.meter{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.meter i{height:8px;border-radius:2px;background:var(--sunk)}
+.meter.l1 i:nth-child(1){background:var(--good)} .meter.l2 i:nth-child(-n+2){background:var(--mid)} .meter.l3 i{background:var(--bad)}
+.lvl{font:600 12px var(--f-mono);letter-spacing:.04em;text-transform:uppercase}
+.lvl.l1{color:var(--good)} .lvl.l2{color:var(--mid)} .lvl.l3{color:var(--bad)}
+.impact p{margin:0}
+.ctl{margin:0;padding-left:18px;display:grid;gap:4px}
+h3{margin:0;font:600 13px var(--f-disp);letter-spacing:.02em}
+.logs{padding:10px 12px 14px;display:grid;gap:10px}
+.log{display:grid;gap:4px}
+.log code{font:600 12.5px var(--f-mono);color:var(--app)}
+.log p{margin:0;color:var(--muted);font-size:12.5px}
+.copy{justify-self:start;border:1px solid var(--line);background:var(--surface);border-radius:4px;font-size:11.5px;padding:2px 8px}
+.tbl{overflow-x:auto;padding:6px 12px 12px}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+#matrix{min-width:900px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 11px var(--f-ui);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+#matrix tbody tr{cursor:pointer} #matrix tbody tr:hover{background:var(--sunk)} #matrix tbody tr.sel{background:var(--tok-soft)}
+#matrix td:first-child{font:600 13px var(--f-disp);white-space:nowrap}
+td code{font:600 12px var(--f-mono);color:var(--app);white-space:nowrap}
+.pill{display:inline-block;font:600 10.5px var(--f-mono);padding:1px 6px;border-radius:3px;white-space:nowrap}
+.pill.l1{background:var(--good-soft);color:var(--good)} .pill.l2{background:var(--mid-soft);color:var(--mid)} .pill.l3{background:var(--bad-soft);color:var(--bad)}
+.pill.doc{background:var(--good-soft);color:var(--good)} .pill.lab{background:var(--mid-soft);color:var(--mid)} .pill.inf{background:var(--sunk);color:var(--muted)}
+#verif{min-width:760px} #verif td a{color:var(--app)}
+.ref{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+@media (max-width:1020px){.ref{grid-template-columns:minmax(0,1fr)}}
+.ref table{min-width:520px}
+footer{color:var(--muted);font-size:12px;display:grid;gap:4px;max-width:120ch}
+footer a{color:inherit}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>AgentWhoAmI <span class="q">¿quién es tu agente?</span></h1>
+      <p class="lede">Cuando un agente de IA llama a una API, Entra ID no ve "un agente": ve una aplicación, una identidad administrada, una identidad de agente o a un usuario. Recorre cada flujo paso a paso, mira el request, el token y lo que se verifica, y en cada paso compara cómo debe ser con lo que pasa si no se cumple.</p>
+    </div>
+    <div class="legend" aria-label="Leyenda">
+      <span><i style="background:var(--app)"></i>Aplicación o agente</span>
+      <span><i style="background:var(--user)"></i>Usuario</span>
+      <span><i style="background:var(--tok)"></i>Token en tránsito</span>
+      <span><i style="background:var(--bad)"></i>Riesgo</span>
+      <span><i style="background:var(--good)"></i>Bloqueo</span>
+    </div>
+  </header>
+
+  <nav class="methods" role="tablist" aria-label="Métodos de identidad" id="methods"></nav>
+
+  <div class="bar">
+    <div class="ctrls">
+      <button id="prev" aria-label="Paso anterior">‹</button>
+      <button id="play" class="primary" aria-label="Reproducir">▶</button>
+      <button id="next" aria-label="Paso siguiente">›</button>
+      <button id="reset" aria-label="Reiniciar">↺</button>
+    </div>
+    <span class="counter" id="counter">paso 0 / 0</span>
+    <div class="variants" id="variants" role="group" aria-label="Variante del flujo"></div>
+    <div class="who"><span>Ante Entra ID el agente es</span><strong id="who"></strong></div>
+  </div>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>Flujo</h2>
+      <div class="seq" id="seq"></div>
+    </section>
+    <div class="col">
+      <section class="panel" aria-live="polite">
+        <h2>Paso actual</h2>
+        <div class="itabs" role="tablist" id="itabs"></div>
+        <div class="insp" id="insp"></div>
+      </section>
+      <section class="panel">
+        <h2>Simulador de Conditional Access</h2>
+        <div class="ca" id="ca"></div>
+      </section>
+    </div>
+  </div>
+
+  <div class="lower">
+    <section class="panel">
+      <h2>Radio de impacto</h2>
+      <div class="atks" id="atks" role="group" aria-label="Tipo de ataque"></div>
+      <div class="impact" id="impact"></div>
+    </section>
+    <section class="panel">
+      <h2>Dónde queda el rastro</h2>
+      <div class="logs" id="logs"></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>Comparación de los métodos</h2>
+    <div class="tbl"><table id="matrix"></table></div>
+  </section>
+
+  <div class="ref">
+    <section class="panel">
+      <h2>Referencia: claims que importan</h2>
+      <div class="tbl"><table id="claimsref"></table></div>
+    </section>
+    <section class="panel">
+      <h2>Referencia: errores frecuentes</h2>
+      <div class="tbl"><table id="errref"></table></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>Qué está documentado y qué confirmará el laboratorio</h2>
+    <div class="tbl"><table id="verif"></table></div>
+  </section>
+
+  <footer>
+    <span>Simulación con valores ficticios (tenant contoso-lab). Vida de tokens según valores por defecto de Microsoft Entra ID. El simulador de Conditional Access es una aproximación didáctica: el motor real combina más condiciones.</span>
+    <span>Modo laboratorio: los mismos escenarios corren en un tenant real con scripts abiertos; la evidencia sanitizada (tokens, sign-ins y respuestas 403) se publica aparte.</span>
+    <span>Referencias: <a href="https://learn.microsoft.com/entra/identity-platform/v2-oauth2-client-creds-grant-flow" target="_blank" rel="noopener">client credentials</a> · <a href="https://learn.microsoft.com/entra/workload-id/workload-identity-federation" target="_blank" rel="noopener">workload identity federation</a> · <a href="https://learn.microsoft.com/entra/identity/managed-identities-azure-resources/overview" target="_blank" rel="noopener">managed identities</a> · <a href="https://learn.microsoft.com/entra/identity-platform/v2-oauth2-auth-code-flow" target="_blank" rel="noopener">auth code + PKCE</a> · <a href="https://learn.microsoft.com/entra/identity-platform/v2-oauth2-on-behalf-of-flow" target="_blank" rel="noopener">On-Behalf-Of</a> · <a href="https://learn.microsoft.com/entra/agent-id/agent-autonomous-app-oauth-flow" target="_blank" rel="noopener">Agent ID autónomo</a> · <a href="https://learn.microsoft.com/entra/agent-id/agent-on-behalf-of-oauth-flow" target="_blank" rel="noopener">Agent ID OBO</a> · <a href="https://learn.microsoft.com/entra/agent-id/agent-user-oauth-flow" target="_blank" rel="noopener">cuenta de usuario del agente</a> · <a href="https://learn.microsoft.com/entra/agent-id/agent-token-claims" target="_blank" rel="noopener">claims de agente</a> · <a href="https://learn.microsoft.com/entra/identity/conditional-access/agent-id" target="_blank" rel="noopener">Conditional Access para agentes</a> · <a href="https://learn.microsoft.com/entra/agent-id/authentication-with-auth-sdk-sidecar" target="_blank" rel="noopener">sidecar del Entra Auth SDK</a> · <a href="https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization" target="_blank" rel="noopener">autorización en MCP 2025-11-25</a> · <a href="https://learn.microsoft.com/entra/identity/conditional-access/workload-identity" target="_blank" rel="noopener">Conditional Access para workload identities</a></span>
+  </footer>
+</div>
+
+<script>
+const TID = "7c1e04aa-…-lab";
+const LOGIN = "login.microsoftonline.com";
+const ATTACKS = [
+  {id:"pi", label:"El agente es manipulado (prompt injection)"},
+  {id:"cred", label:"Se filtra la credencial del agente"},
+  {id:"tok", label:"Roban un token en tránsito"}
+];
+const tokReq = (lines) => `POST /${TID}/oauth2/v2.0/token\nHost: ${LOGIN}\nContent-Type: application/x-www-form-urlencoded\n\n` + lines.join("\n&");
+const ok200 = (extra) => `HTTP/1.1 200 OK\nContent-Type: application/json\n\n{\n  "token_type": "Bearer",\n  "expires_in": ${extra||3599},\n  "access_token": "eyJ0eXAiOiJKV1Qi…"\n}`;
+
+/* Cada paso: f,t (carriles), l (etiqueta), title, d, req, res, tok, checks [[qué, deber ser, si no]], should, ifnot, cls, flag, ca */
+const M = [
+{
+  id:"secret", name:"Secreto de cliente", tag:"client credentials", kind:"app",
+  who:"una aplicación (app-only)", ca:{subject:"workload"},
+  lanes:[["cfg","Config / Key Vault","donde vive el secreto"],["agent","Agente","proceso del agente"],["entra","Entra ID","emisor de tokens"],["api","Microsoft Graph","API"]],
+  steps:[
+    {f:"agent",t:"cfg",l:"lee client_secret",title:"El agente carga su secreto",d:"El secreto vive en una variable de entorno, un .env o, en el mejor caso, en Key Vault. Quien lo lea se convierte en el agente.",
+     req:"GET https://kv-agentes.vault.azure.net/secrets/agente-backoffice?api-version=7.4\nAuthorization: Bearer <token del runtime>",
+     should:"El secreto está en Key Vault, con rotación y expiración corta, y solo el runtime del agente puede leerlo.",
+     ifnot:"Si está en el código o en un .env versionado, cualquiera con acceso al repositorio, a un log o a una imagen de contenedor es el agente, desde cualquier lugar.",
+     flag:["danger","La duración del secreto la elige quien lo crea, y suele elegirse larga. Es la credencial que más aparece filtrada en repositorios."]},
+    {f:"agent",t:"entra",l:"POST /token  client_credentials",ca:true,title:"Pide un token sin usuario",d:"No hay persona, ni MFA, ni consentimiento en este momento: lo dio un administrador al registrar la app.",
+     req:tokReq(["client_id=4f1d9c2e-…","client_secret=••••••••••••","scope=https://graph.microsoft.com/.default","grant_type=client_credentials"]),
+     checks:[["Credencial del cliente","Secreto válido y vigente","AADSTS7000215 si el secreto es inválido; si es válido, nadie pregunta quién lo usa"],["Conditional Access para workload identities","Ubicación y riesgo del service principal","Sin Workload Identities Premium no hay política: el secreto sirve desde cualquier IP"]],
+     should:"El token solo se emite si la llamada viene de una red conocida y el service principal no tiene riesgo.",
+     ifnot:"Un secreto robado obtiene tokens desde la laptop del atacante con el mismo éxito que el agente legítimo."},
+    {f:"entra",t:"agent",l:"access_token (app-only)",title:"Entra emite un token de aplicación",d:"El token no menciona a ningún usuario. Los permisos viajan en roles y valen para todo el tenant.",
+     res:ok200(),
+     tok:{h:"access token · app-only",claims:[
+      ["aud","https://graph.microsoft.com",0],["idtyp","app",1,"Token de aplicación: no hay usuario detrás. Entra lo incluye por defecto en tokens app-only.","app"],
+      ["appid","4f1d9c2e-… (agente-backoffice)",1,"El cliente que pidió el token.","app"],["roles",'["User.Read.All","Mail.Read"]',1,"Permisos de aplicación: sobre todos los usuarios y buzones.","app"],
+      ["scp","(ausente)",0],["exp","iat + 60 a 90 min",0]]},
+     should:"Roles mínimos, idealmente acotados a buzones o sitios concretos (RBAC for Applications, Sites.Selected).",
+     ifnot:"Con Mail.Read de aplicación el agente puede leer cualquier buzón del tenant, también el del gerente general."},
+    {f:"agent",t:"api",l:"GET /users/{cualquiera}/messages",cls:"danger",title:"Lee el buzón de cualquiera",d:"Una instrucción oculta en un documento le pide al agente leer el buzón de otra persona.",
+     req:"GET https://graph.microsoft.com/v1.0/users/carla.medina@contoso-lab.onmicrosoft.com/messages?$top=50\nAuthorization: Bearer eyJ0eXAiOiJKV1Qi…",
+     checks:[["Firma y emisor","Token firmado por Entra para este tenant","401"],["Audiencia","aud = Graph","401 InvalidAuthenticationToken"],["Permiso","roles contiene Mail.Read","403; aquí sí lo contiene"]],
+     should:"El agente solo puede leer el buzón de la persona que le pidió la tarea.",
+     ifnot:"Nada en el token lo acota: la API responde 200 y la exfiltración parece tráfico legítimo.",
+     flag:["danger","La API valida que el token es correcto, no que la petición tenga sentido."]},
+    {f:"api",t:"agent",l:"200 OK",title:"La API responde",d:"Graph valida firma, audiencia y roles. Desde su punto de vista la petición es legítima.",
+     res:"HTTP/1.1 200 OK\nContent-Type: application/json\n\n{\n  \"value\": [ { \"subject\": \"Presupuesto 2027 confidencial\", … } ]\n}"}
+  ],
+  impact:{
+    pi:[3,"Todo lo que permitan los roles, sobre todos los usuarios del tenant. El agente manipulado y el legítimo son indistinguibles."],
+    cred:[3,"El secreto funciona fuera de tu red y fuera de Azure hasta que expire o lo rotes. Sin Conditional Access para workload identities, nada lo frena."],
+    tok:[2,"Una hora de acceso con los mismos roles, desde cualquier IP."]},
+  controls:["Reemplazar el secreto por managed identity o credencial federada.","Permisos de aplicación mínimos; para Exchange y SharePoint, RBAC for Applications o Sites.Selected.","Conditional Access para workload identities: bloquear fuera de ubicaciones conocidas.","Alertas por credenciales nuevas en la app y expiraciones largas."],
+  logs:[["AADServicePrincipalSignInLogs","Cada emisión de token, con IP, tipo de credencial y resultado de Conditional Access.",`AADServicePrincipalSignInLogs
+| where AppId == "<appid del agente>"
+| summarize count() by IPAddress, ClientCredentialType, ResultType`],
+        ["MicrosoftGraphActivityLogs","Qué llamó el agente en Graph, con qué token y desde dónde.",`MicrosoftGraphActivityLogs
+| where AppId == "<appid del agente>" and RequestUri has "/messages"
+| project TimeGenerated, RequestUri, ResponseStatusCode, IPAddress`]],
+  matrix:["Secreto (vida que elige quien lo crea)","No","60 a 90 min","Sí, con Workload ID Premium",3,"Todo el tenant según roles"]
+},
+{
+  id:"fic", name:"Credencial federada", tag:"workload identity federation", kind:"app",
+  who:"una aplicación (app-only), sin secreto guardado", ca:{subject:"workload"},
+  lanes:[["plat","Plataforma","GitHub Actions / AKS"],["agent","Agente","workload"],["entra","Entra ID","emisor de tokens"],["api","Azure Storage","API"]],
+  steps:[
+    {f:"plat",t:"agent",l:"token OIDC de la plataforma",title:"La plataforma le da al agente un token propio",d:"GitHub Actions, Kubernetes u otro proveedor OIDC firma un token de vida corta que describe exactamente qué workload es.",
+     tok:{h:"token OIDC externo",claims:[
+      ["iss","https://token.actions.githubusercontent.com",1,"Emisor aceptado porque lo configuraste como federado."],["sub","repo:contoso/agente-backoffice:environment:prod",1,"Solo este repo y este entorno pueden canjearlo."],
+      ["aud","api://AzureADTokenExchange",0],["exp","iat + 5 a 10 min",0]]},
+     should:"El subject identifica un repo y un entorno concretos.",
+     ifnot:"Con un subject amplio (cualquier rama, cualquier repo de la organización), un pull request malicioso obtiene la identidad del agente."},
+    {f:"agent",t:"entra",l:"POST /token  client_assertion=<OIDC>",ca:true,title:"Lo canjea en Entra",d:"Entra compara issuer, subject y audience con la credencial federada de la app. Si coinciden, emite su propio token. No existe un secreto que filtrar.",
+     req:tokReq(["client_id=81aa02f7-…","client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer","client_assertion=eyJhbGciOiJSUzI1NiIs… (token OIDC)","scope=https://storage.azure.com/.default","grant_type=client_credentials"]),
+     checks:[["Issuer, subject y audience","Coinciden con la credencial federada","Entra rechaza el canje; el código exacto lo captura el laboratorio"],["Vigencia del token OIDC","Minutos","Un token OIDC viejo se rechaza"],["Conditional Access para workload identities","Ubicación y riesgo","Sin política, cualquier runner que obtenga el OIDC puede canjearlo"]],
+     should:"Solo el pipeline o el pod esperado puede obtener tokens del agente.",
+     ifnot:"Quien controle el workflow o el clúster controla la identidad del agente."},
+    {f:"entra",t:"agent",l:"access_token (app-only)",title:"Token de aplicación de Entra",d:"Para Storage el permiso no viaja en el token: lo decide RBAC en el recurso.",res:ok200(),
+     tok:{h:"access token · app-only",claims:[
+      ["aud","https://storage.azure.com",0],["idtyp","app",1,"Sigue siendo una aplicación: federar quita el secreto, no acota los permisos.","app"],["appid","81aa02f7-… (agente-backoffice)",0,"","app"],["oid","service principal del agente",0],["exp","iat + 60 a 90 min",0]]}},
+    {f:"agent",t:"api",l:"GET /caso/expediente-2291.txt",title:"Lee el documento",d:"Storage evalúa RBAC sobre el contenedor.",
+     req:"GET https://stagentes.blob.core.windows.net/caso/expediente-2291.txt\nAuthorization: Bearer eyJ0eXAiOiJKV1Qi…\nx-ms-version: 2023-11-03",
+     should:"El rol está asignado al contenedor que el agente necesita, no a la cuenta ni a la suscripción.",
+     ifnot:"Con Storage Blob Data Reader a nivel de suscripción, el agente lee cualquier cuenta de almacenamiento."},
+    {f:"api",t:"agent",l:"200 OK",title:"Respuesta",d:"Lectura registrada en StorageBlobLogs con el object ID del service principal.",res:"HTTP/1.1 200 OK\nContent-Type: text/plain\n\nExpediente 2291 - Cliente: Comercial Andina SAC …"}
+  ],
+  impact:{
+    pi:[2,"Lo mismo que el secreto si los roles son amplios. La federación resuelve la custodia de la credencial, no el mínimo privilegio."],
+    cred:[1,"No hay secreto. Para suplantarlo hay que comprometer el pipeline o el clúster que emite el token OIDC."],
+    tok:[2,"El token de Entra sigue siendo bearer: una hora de uso desde cualquier lugar."]},
+  controls:["Subject lo más específico posible (repo + entorno, no repo:*).","RBAC al nivel de contenedor o recurso.","Conditional Access para workload identities.","Proteger el pipeline: quien controla el workflow controla la identidad."],
+  logs:[["AADServicePrincipalSignInLogs","El canje aparece con su tipo de credencial en ClientCredentialType.",`AADServicePrincipalSignInLogs
+| where ServicePrincipalName == "agente-backoffice"
+| summarize count() by ClientCredentialType, IPAddress, ResultType`],
+        ["StorageBlobLogs","Cada lectura con el object ID del agente y el código de estado.",`StorageBlobLogs
+| where RequesterObjectId == "<oid del agente>"
+| project TimeGenerated, OperationName, ObjectKey, StatusCode`]],
+  matrix:["Ninguna guardada (federación)","No","60 a 90 min","Sí, con Workload ID Premium",2,"Según roles y RBAC"]
+},
+{
+  id:"mi", name:"Managed identity", tag:"identidad administrada", kind:"app",
+  who:"una identidad administrada (app-only)", ca:{subject:"mi"},
+  lanes:[["agent","Agente","Container Instances"],["imds","IMDS","169.254.169.254"],["entra","Entra ID","emisor de tokens"],["api","Azure Storage","API"]],
+  steps:[
+    {f:"agent",t:"imds",l:"GET token?resource=storage",title:"Pide un token al endpoint local",d:"El endpoint de identidad solo responde desde dentro del recurso de Azure. El código nunca ve una credencial.",
+     req:"GET http://169.254.169.254/metadata/identity/oauth2/token\n  ?api-version=2018-02-01&resource=https://storage.azure.com\nMetadata: true",
+     should:"Solo el proceso del agente puede alcanzar el endpoint de identidad.",
+     ifnot:"Si el agente ejecuta código arbitrario (una herramienta de Python, por ejemplo), cualquier instrucción inyectada puede pedir tokens de la identidad."},
+    {f:"imds",t:"entra",l:"credencial de la plataforma",ca:true,title:"La plataforma se autentica por ti",d:"Azure presenta una credencial que rota sola y que no puedes leer ni exportar.",
+     checks:[["Credencial de la plataforma","La gestiona Azure","No hay nada que rotar ni filtrar"],["Conditional Access","No aplica a managed identities","Ninguna política puede bloquear un token robado de una MI"]]},
+    {f:"entra",t:"imds",l:"access_token",title:"Entra emite el token",d:"La plataforma lo guarda en caché para el recurso."},
+    {f:"imds",t:"agent",l:"access_token (MI)",title:"El agente recibe el token",d:"La plataforma reutiliza el token desde su caché.",
+     res:`HTTP/1.1 200 OK\nContent-Type: application/json\n\n{\n  "access_token": "eyJ0eXAiOiJKV1Qi…",\n  "expires_on": "1793889600",\n  "resource": "https://storage.azure.com",\n  "token_type": "Bearer"\n}`,
+     tok:{h:"access token · managed identity",claims:[
+      ["aud","https://storage.azure.com",0],["idtyp","app",1,"Para Entra es una aplicación más.","app"],
+      ["oid","principal de agente-mi",1,"El objeto de la identidad administrada.","app"],["exp","ver en el laboratorio",1,"Azure mantiene en caché los tokens de managed identity alrededor de 24 horas por recurso. Un token robado puede servir mucho más que una hora."]]},
+     should:"El token se usa y se descarta; nunca se escribe en logs ni se pasa al modelo.",
+     ifnot:"Un token de MI en un log de la aplicación puede seguir siendo útil por horas, y Conditional Access no lo puede cortar."},
+    {f:"agent",t:"api",l:"GET /caso/expediente-2291.txt",title:"Lee lo que le toca",d:"RBAC de Storage Blob Data Reader solo sobre el contenedor caso.",
+     req:"GET https://stagentes.blob.core.windows.net/caso/expediente-2291.txt\nAuthorization: Bearer eyJ0eXAiOiJKV1Qi…\nx-ms-version: 2023-11-03"},
+    {f:"api",t:"agent",l:"200 OK",title:"Respuesta",d:"Lectura permitida y registrada.",res:"HTTP/1.1 200 OK\n\nExpediente 2291 - Cliente: Comercial Andina SAC …"},
+    {f:"agent",t:"api",l:"GET /rrhh/planilla-2026.csv",cls:"block",title:"El ataque intenta salir de su carril",d:"Una instrucción oculta en el expediente pide leer la planilla de RRHH.",
+     req:"GET https://stagentes.blob.core.windows.net/rrhh/planilla-2026.csv\nAuthorization: Bearer eyJ0eXAiOiJKV1Qi…",
+     res:"HTTP/1.1 403 Forbidden\nx-ms-error-code: AuthorizationPermissionMismatch\n\n(código esperado; el laboratorio captura la respuesta exacta)",
+     should:"El rol cubre solo el contenedor caso y el intento queda registrado.",
+     ifnot:"Con el rol asignado a la cuenta completa, la planilla sale en la respuesta.",
+     flag:["block","403: el rol no cubre ese contenedor. El intento queda en StorageBlobLogs; un 403 de un agente es una señal de manipulación."]}
+  ],
+  impact:{
+    pi:[2,"Solo lo que cubre RBAC. Con el rol asignado al contenedor exacto, el daño se limita a ese contenedor."],
+    cred:[1,"No hay credencial que filtrar. Para usarla hay que ejecutar código dentro del recurso."],
+    tok:[2,"La plataforma cachea los tokens alrededor de 24 horas, y Conditional Access para workload identities no cubre managed identities."]},
+  controls:["Una identidad por agente; no compartir la misma MI entre workloads.","RBAC sobre el recurso o contenedor exacto.","Si el agente ejecuta código generado, aislar el endpoint de identidad del sandbox.","No registrar tokens en logs de la aplicación."],
+  logs:[["AADManagedIdentitySignInLogs","Cada emisión de token para la identidad, con el recurso de destino.",`AADManagedIdentitySignInLogs
+| where ServicePrincipalName == "agente-mi"
+| summarize count() by ResourceDisplayName, ResultType`],
+        ["StorageBlobLogs","Lecturas permitidas y denegadas. Un 403 de un agente es una señal de manipulación.",`StorageBlobLogs
+| where StatusCode == 403 and AuthenticationType == "OAuth"
+| project TimeGenerated, RequesterObjectId, ObjectKey, StatusText`]],
+  matrix:["Ninguna (la gestiona Azure)","No","Caché de ~24 h","No aplica a MI",2,"Según RBAC"]
+},
+{
+  id:"authcode", name:"Usuario delegado", tag:"auth code + PKCE", kind:"user",
+  who:"una app actuando como la usuaria", ca:{subject:"user"},
+  lanes:[["user","Usuaria","Ana"],["agent","App del agente","cliente"],["entra","Entra ID","emisor de tokens"],["api","Microsoft Graph","API"]],
+  steps:[
+    {f:"user",t:"agent",l:"abre el asistente",title:"Ana abre el asistente",d:"El agente vive en una app que Ana usa directamente: un copiloto en el navegador o en el escritorio."},
+    {f:"agent",t:"entra",l:"/authorize  PKCE + scope",title:"Redirección a Entra",d:"La app pide los scopes que necesita y un code_challenge (PKCE) para que nadie más pueda canjear el código.",
+     req:`GET https://${LOGIN}/${TID}/oauth2/v2.0/authorize\n  ?client_id=3b77c0d1-…\n  &response_type=code\n  &redirect_uri=https://asistente.contoso-lab.com/callback\n  &scope=openid offline_access User.Read Mail.Read\n  &code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM\n  &code_challenge_method=S256\n  &state=af0ifjsldkj`,
+     checks:[["redirect_uri","Exactamente una URI registrada","AADSTS50011: la URI no coincide"],["PKCE","code_challenge con S256","Sin PKCE, un código interceptado se puede canjear"],["state","Valor aleatorio verificado al volver","Sin state, ataques CSRF de inicio de sesión"]],
+     should:"Scopes mínimos y PKCE siempre, incluso en apps confidenciales.",
+     ifnot:"Pedir Mail.ReadWrite o Files.ReadWrite.All \"por si acaso\" amplía lo que un agente manipulado puede hacer en nombre de Ana."},
+    {f:"entra",t:"user",l:"MFA + Conditional Access",ca:true,title:"Entra evalúa a Ana",d:"Aquí se aplican MFA, dispositivo, ubicación y riesgo de la usuaria. Es el control que no existe en los flujos app-only.",
+     checks:[["Autenticación","MFA resistente a phishing","AADSTS50076 / 50079: se exige MFA"],["Dispositivo","Administrado y conforme","AADSTS53000: dispositivo no conforme"],["Ubicación y riesgo","Red conocida, riesgo bajo","AADSTS53003: bloqueado por Conditional Access"]],
+     should:"Conditional Access exige MFA, dispositivo conforme y bloquea riesgo alto.",
+     ifnot:"Con solo contraseña, una credencial phisheada de Ana basta para que un atacante use el asistente como si fuera ella."},
+    {f:"entra",t:"agent",l:"authorization code",title:"Código de un solo uso",d:"Vuelve a la app por la URI de redirección registrada.",
+     res:"HTTP/1.1 302 Found\nLocation: https://asistente.contoso-lab.com/callback\n  ?code=0.AXkAm9Q…\n  &state=af0ifjsldkj"},
+    {f:"agent",t:"entra",l:"POST /token  code_verifier",title:"Canje del código",d:"Solo quien generó el code_challenge puede completar el canje.",
+     req:tokReq(["client_id=3b77c0d1-…","grant_type=authorization_code","code=0.AXkAm9Q…","redirect_uri=https://asistente.contoso-lab.com/callback","code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"]),
+     checks:[["code_verifier","Corresponde al code_challenge","AADSTS501481: verificador inválido"]]},
+    {f:"entra",t:"agent",l:"access_token + refresh_token",title:"Token delegado",d:"El token representa a Ana usando esta app. El refresh token dura 90 días por defecto (24 horas en apps de una sola página).",
+     res:`HTTP/1.1 200 OK\n\n{\n  "token_type": "Bearer",\n  "scope": "User.Read Mail.Read",\n  "expires_in": 4823,\n  "access_token": "eyJ0eXAiOiJKV1Qi…",\n  "refresh_token": "1.AXkAm9Q…",\n  "id_token": "eyJ0eXAiOiJKV1Qi…"\n}`,
+     tok:{h:"access token · delegado",claims:[
+      ["aud","https://graph.microsoft.com",0],["upn","ana.torres@contoso-lab.onmicrosoft.com",1,"","user"],
+      ["scp","User.Read Mail.Read",1,"Permisos delegados: lo que Ana puede ∩ lo que la app pidió.","user"],["azp","3b77c0d1-… (asistente)",0,"","app"],["amr",'["pwd","mfa"]',1,"Cómo se autenticó Ana."],["acrs",'["c1"]',0,"Contexto de autenticación exigido, si lo hay."],["exp","iat + 60 a 90 min",0]]},
+     should:"El refresh token se guarda cifrado y ligado al dispositivo.",
+     ifnot:"Un refresh token robado de la caché del navegador da acceso por días, sin pasar otra vez por MFA."},
+    {f:"agent",t:"api",l:"GET /me/messages",title:"Lee el correo de Ana",d:"Permitido: es el buzón de la usuaria del token.",
+     req:"GET https://graph.microsoft.com/v1.0/me/messages?$top=10\nAuthorization: Bearer eyJ0eXAiOiJKV1Qi…",res:"HTTP/1.1 200 OK\n\n{ \"value\": [ … correos de Ana … ] }"},
+    {f:"agent",t:"api",l:"GET /users/luis/messages",cls:"block",title:"Intenta leer el buzón de otro",d:"La instrucción oculta pide el buzón de Luis.",
+     req:"GET https://graph.microsoft.com/v1.0/users/luis.quispe@contoso-lab.onmicrosoft.com/messages\nAuthorization: Bearer eyJ0eXAiOiJKV1Qi…",
+     res:"HTTP/1.1 403 Forbidden\n\n(cuerpo exacto: lo captura el laboratorio)",
+     should:"El agente nunca supera lo que Ana puede hacer.",
+     ifnot:"Si Ana tiene permisos de administración o buzones delegados, el agente manipulado los hereda.",
+     flag:["block","403 esperado: con Mail.Read delegado la app actúa como Ana, y Ana no tiene acceso al buzón de Luis salvo que él lo haya compartido."]}
+  ],
+  impact:{
+    pi:[2,"Todo lo que Ana puede hacer dentro de los scopes pedidos. Si Ana es administradora, el radio crece con ella."],
+    cred:[2,"No hay secreto del agente, pero el refresh token en el dispositivo da acceso por días."],
+    tok:[2,"Una hora. Con Continuous Access Evaluation, Exchange, Teams y SharePoint Online revocan en minutos (hasta 15 de latencia)."]},
+  controls:["Scopes mínimos revisados en el consentimiento.","Conditional Access del usuario: MFA resistente a phishing y dispositivo administrado.","Continuous Access Evaluation y protección de tokens donde esté disponible.","Usuarios sin roles de administración permanentes."],
+  logs:[["SigninLogs","El inicio de sesión interactivo de Ana con el resultado de Conditional Access.",`SigninLogs
+| where AppDisplayName == "asistente"
+| project TimeGenerated, UserPrincipalName, ConditionalAccessStatus, IPAddress`],
+        ["AADNonInteractiveUserSignInLogs","Cada renovación con el refresh token, donde se nota el uso fuera de lugar.",`AADNonInteractiveUserSignInLogs
+| where AppDisplayName == "asistente"
+| summarize dcount(IPAddress) by UserPrincipalName`]],
+  matrix:["Sesión y refresh token de la usuaria","Sí","60 a 90 min + refresh","Sí, el de la usuaria",2,"Lo que puede la usuaria ∩ scopes"]
+},
+{
+  id:"obo", name:"On-Behalf-Of", tag:"agente intermedio", kind:"user",
+  who:"el agente actuando por la usuaria", ca:{subject:"user"},
+  lanes:[["user","Usuaria + cliente","Ana"],["agent","API del agente","middle tier"],["entra","Entra ID","emisor de tokens"],["api","Microsoft Graph","API"]],
+  steps:[
+    {f:"user",t:"agent",l:"Bearer (aud = api://agente)",title:"Ana llama a la API del agente",d:"El cliente obtuvo un token cuyo destinatario es la API del agente, no Graph.",
+     req:"POST https://agente.contoso-lab.com/tareas\nAuthorization: Bearer eyJ0eXAiOiJKV1Qi…\n\n{ \"tarea\": \"Resume el expediente 2291\" }",
+     tok:{h:"token de entrada · delegado",claims:[["aud","api://agente-backoffice",1,"Solo sirve para la API del agente.","app"],["scp","access_as_user",0],["oid","Ana",1,"","user"],["azp","cliente web",0]]},
+     checks:[["Audiencia","aud = api://agente-backoffice","Si la API acepta cualquier aud, otro servicio puede reenviarle tokens ajenos"],["Emisor","Tu tenant","Tokens de otros tenants aceptados por error"]],
+     should:"La API del agente valida firma, emisor y audiencia antes de hacer nada.",
+     ifnot:"Una API que no valida aud acepta tokens emitidos para otra cosa y los convierte en acceso a Graph."},
+    {f:"agent",t:"entra",l:"POST /token  on_behalf_of",ca:true,title:"El agente canjea el token de Ana",d:"El agente presenta el token de Ana y además su propia credencial. Una sin la otra no sirve. Conditional Access se evalúa otra vez para Ana.",
+     req:tokReq(["client_id=agente-backoffice","client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer","client_assertion=eyJhbGciOiJSUzI1NiIs… (certificado o MI)","grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer","assertion=eyJ0eXAiOiJKV1Qi… (token de Ana)","requested_token_use=on_behalf_of","scope=https://graph.microsoft.com/User.Read"]),
+     checks:[["assertion","Token de Ana con aud = la API del agente","AADSTS50013: assertion inválido"],["Consentimiento","El agente tiene User.Read delegado","AADSTS65001: falta consentimiento"],["Conditional Access","Se reevalúa a Ana para el recurso final","Políticas del recurso final que el cliente original nunca vio"]]},
+    {f:"entra",t:"agent",l:"access_token (Ana vía agente)",title:"Token para Graph en nombre de Ana",d:"La misma usuaria, la audiencia de Graph y el agente como cliente.",res:ok200(4420),
+     tok:{h:"access token · OBO",claims:[
+      ["aud","https://graph.microsoft.com",0],["oid","Ana (mismo que en la entrada)",1,"La identidad de Ana atraviesa la cadena.","user"],
+      ["azp","agente-backoffice",1,"El agente queda registrado como intermediario.","app"],["scp","User.Read",1,"Intersección: lo que Ana puede ∩ lo que el agente tiene consentido.","user"],["exp","iat + 60 a 90 min",0]]}},
+    {f:"agent",t:"api",l:"GET /me",title:"Consulta el perfil de Ana",d:"Permitido.",req:"GET https://graph.microsoft.com/v1.0/me\nAuthorization: Bearer eyJ0eXAiOiJKV1Qi…",res:"HTTP/1.1 200 OK\n\n{ \"displayName\": \"Ana Torres\", … }"},
+    {f:"agent",t:"api",l:"GET /users",cls:"block",title:"El ataque pide el directorio",d:"La instrucción oculta pide listar a todos los usuarios.",
+     req:"GET https://graph.microsoft.com/v1.0/users\nAuthorization: Bearer eyJ0eXAiOiJKV1Qi…",
+     res:"HTTP/1.1 403 Forbidden\n\n(cuerpo exacto: lo captura el laboratorio)",
+     should:"El agente no puede pedir más scopes de los que tiene consentidos.",
+     ifnot:"Si al agente le consentiste Directory.Read.All \"para más adelante\", el directorio completo sale con la identidad de Ana.",
+     flag:["block","403: listar usuarios exige User.ReadBasic.All, User.Read.All o Directory.Read.All. User.Read no alcanza."]}
+  ],
+  impact:{
+    pi:[1,"El más acotado de los delegados: el agente nunca supera a Ana ni a sus propios scopes."],
+    cred:[1,"La credencial del agente sola no basta: sin un token de usuario no hay nada que canjear."],
+    tok:[2,"Una hora con los permisos de Ana. Conditional Access se reevalúa en el canje."]},
+  controls:["Credencial del agente como certificado, federación o managed identity, no secreto.","Scopes delegados mínimos por API aguas abajo.","Validar aud en la API del agente.","Conditional Access dirigido a la API del agente."],
+  logs:[["AADNonInteractiveUserSignInLogs","El canje OBO aparece como inicio no interactivo de Ana con el agente como app.",`AADNonInteractiveUserSignInLogs
+| where AppDisplayName == "agente-backoffice"
+| project TimeGenerated, UserPrincipalName, ResourceDisplayName, ResultType`],
+        ["MicrosoftGraphActivityLogs","Lo que el agente hizo con el token de Ana, con UserId y AppId en la misma fila.",`MicrosoftGraphActivityLogs
+| where AppId == "<appid del agente>" and ResponseStatusCode == 403`]],
+  matrix:["Credencial del agente + token de la usuaria","Sí","60 a 90 min","Sí, en el canje",1,"Usuaria ∩ agente"]
+},
+{
+  id:"agentid", name:"Entra Agent ID", tag:"identidad de agente", kind:"mix", preview:true,
+  who:"una identidad de agente", ca:{subject:"agent"},
+  lanes:[["agent","Agente","runtime con MI"],["bp","Blueprint","plantilla del agente"],["entra","Entra ID","emisor de tokens"],["api","Microsoft Graph","API"]],
+  variants:[
+   {id:"auto",label:"Autónomo",who:"una identidad de agente (app-only)",ca:"agent",steps:[
+    {f:"agent",t:"entra",l:"T1: blueprint + fmi_path",title:"El runtime pide T1 en nombre del blueprint",d:"La managed identity del runtime es la credencial del blueprint. Con fmi_path indica para qué identidad de agente quiere el token intermedio.",
+     req:tokReq(["client_id=<AgentBlueprint>","scope=api://AzureADTokenExchange/.default","fmi_path=<AgentIdentity>","client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer","client_assertion=<token de la managed identity>","grant_type=client_credentials"]),
+     checks:[["Credencial del blueprint","Managed identity como credencial federada","Un blueprint con secreto reintroduce el problema del método 1"],["fmi_path","Una identidad de agente creada desde ese blueprint","Error: el blueprint no puede emitir para identidades ajenas"]],
+     should:"El blueprint se autentica sin secretos y solo emite para sus propios agentes.",
+     ifnot:"Si el blueprint usa un secreto compartido por todos sus agentes, filtrarlo compromete a todos a la vez."},
+    {f:"entra",t:"agent",l:"T1 (solo sirve para canje)",title:"Token intermedio",d:"T1 tiene como audiencia el intercambio de tokens. No abre ninguna API por sí solo.",res:ok200(),
+     flag:["note","Conditional Access no se evalúa en este canje intermedio, según la documentación de Microsoft."]},
+    {f:"agent",t:"entra",l:"token final: AgentIdentity + T1",ca:true,title:"Canje por el token de la identidad del agente",d:"Ahora el cliente es la identidad del agente y su credencial es T1. Aquí se evalúa Conditional Access para agentes.",
+     req:tokReq(["client_id=<AgentIdentity>","scope=https://graph.microsoft.com/.default","client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer","client_assertion=<T1>","grant_type=client_credentials"]),
+     checks:[["Conditional Access para agentes","Política dirigida a la identidad del agente","Requiere Microsoft 365 E7, o Agent 365 con Entra P1 o Microsoft 365 E3; sin licencia, no hay política"],["Permisos","Asignados a esta identidad de agente","Permisos heredados por todo el blueprint amplían el radio"]]},
+    {f:"entra",t:"agent",l:"access_token (agente)",title:"Token de la identidad del agente",d:"Los claims xms_* permiten distinguir a un agente de una app clásica.",res:ok200(),
+     tok:{h:"access token · agente autónomo",claims:[
+      ["aud","https://graph.microsoft.com",0],["idtyp","app",1,"Modo autónomo: no hay usuario.","app"],["appid","<AgentIdentity>",1,"Una identidad por agente, no una por equipo.","app"],
+      ["xms_act_fct","\"… 11\"",1,"Lista de facetas separadas por espacios; si contiene 11, el actor es una identidad de agente.","app"],["xms_par_app_azp","<AgentBlueprint>",1,"App padre. Regístrala; no autorices basándote en ella."],["roles","según permisos asignados",0],["exp","iat + ~1 h",0]]},
+     should:"Las APIs y el SOC distinguen tokens de agentes por sus claims y por sus sign-ins.",
+     ifnot:"Si nadie mira xms_act_fct ni el tipo de sign-in, el agente se pierde entre miles de apps y nadie sabe qué hizo cada uno."},
+    {f:"agent",t:"api",l:"llamadas con su identidad",title:"Actúa con trazabilidad propia",d:"Cada acción queda atribuida a ese agente concreto, con su responsable y su ciclo de vida.",req:"GET https://graph.microsoft.com/v1.0/users?$select=displayName\nAuthorization: Bearer eyJ0eXAiOiJKV1Qi…"}
+   ]},
+   {id:"obo",label:"En nombre de un usuario",who:"una identidad de agente actuando por Ana",ca:"user",steps:[
+    {f:"agent",t:"entra",l:"T1: blueprint + fmi_path",title:"El runtime pide T1",d:"Igual que en modo autónomo: la managed identity firma por el blueprint.",
+     req:tokReq(["client_id=<AgentBlueprint>","scope=api://AzureADTokenExchange/.default","fmi_path=<AgentIdentity>","client_assertion=<token de la managed identity>","grant_type=client_credentials"])},
+    {f:"entra",t:"agent",l:"T1",title:"Token intermedio",d:"Solo sirve para el siguiente canje.",res:ok200()},
+    {f:"agent",t:"entra",l:"OBO: T1 + token de Ana (Tc)",ca:true,title:"Canje en nombre de Ana",d:"El agente presenta T1 como credencial y el token de Ana como assertion. El token de Ana debe tener como audiencia al blueprint.",
+     req:tokReq(["client_id=<AgentIdentity>","scope=https://graph.microsoft.com/User.Read","client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer","client_assertion=<T1>","grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer","assertion=<Tc, token de Ana con aud = blueprint>","requested_token_use=on_behalf_of"]),
+     checks:[["Tc","aud = blueprint","Error de audiencia: no se puede canjear un token emitido para otra cosa"],["Conditional Access","Se evalúa para Ana, la usuaria del token","Las políticas de agente no aplican en este modo: aplican las de Ana"]],
+     should:"El agente actúa con la intersección de Ana y de sus propios permisos.",
+     ifnot:"Si las políticas de Ana son débiles, el agente hereda esa debilidad."},
+    {f:"entra",t:"agent",l:"access_token (Ana vía agente)",title:"Token delegado de agente",d:"idtyp vuelve a ser user: hay una persona detrás.",res:ok200(),
+     tok:{h:"access token · agente OBO",claims:[["aud","https://graph.microsoft.com",0],["idtyp","user",1,"Hay una usuaria.","user"],["oid","Ana",1,"","user"],["azp","<AgentIdentity>",1,"El agente como cliente.","app"],["xms_act_fct","\"… 11\"",1,"Contiene 11: el actor es una identidad de agente.","app"],["scp","User.Read",0]]}},
+    {f:"agent",t:"api",l:"GET /me",title:"Actúa como Ana",d:"El rastro muestra a Ana y al agente en la misma fila.",req:"GET https://graph.microsoft.com/v1.0/me\nAuthorization: Bearer eyJ0eXAiOiJKV1Qi…"}
+   ]},
+   {id:"auser",label:"Cuenta de usuario del agente",who:"la cuenta de usuario propia del agente",ca:"agentuser",steps:[
+    {f:"agent",t:"entra",l:"T1: blueprint + fmi_path",title:"El runtime pide T1",d:"Mismo primer paso.",req:tokReq(["client_id=<AgentBlueprint>","scope=api://AzureADTokenExchange/.default","fmi_path=<AgentIdentity>","client_assertion=<token de la managed identity>","grant_type=client_credentials"])},
+    {f:"agent",t:"entra",l:"T2: AgentIdentity + T1",title:"Segundo token intermedio",d:"La identidad del agente canjea T1 por T2, otra vez con audiencia de intercambio.",
+     req:tokReq(["client_id=<AgentIdentity>","scope=api://AzureADTokenExchange/.default","client_assertion=<T1>","grant_type=client_credentials"])},
+    {f:"agent",t:"entra",l:"user_fic: T1 + T2 + username",ca:true,title:"Inicia sesión como su propio usuario",d:"Algunos sistemas solo entienden usuarios (un buzón, un equipo de Teams). El agente tiene una cuenta de usuario propia y entra con ella.",
+     req:tokReq(["client_id=<AgentIdentity>","scope=https://graph.microsoft.com/Mail.Send","client_assertion=<T1>","user_federated_identity_credential=<T2>","username=agente.backoffice@contoso-lab.onmicrosoft.com","grant_type=user_fic","requested_token_use=on_behalf_of"]),
+     checks:[["Cuenta de usuario del agente","Ligada a esa identidad de agente","Una cuenta de usuario normal usada por un agente no se distingue de una persona"],["Conditional Access","Políticas de la cuenta de usuario del agente","Las políticas de la identidad del agente no cruzan a su cuenta de usuario"]],
+     should:"Cada cuenta de usuario de agente se gobierna como agente: responsable, permisos propios, revisión.",
+     ifnot:"Una \"cuenta de servicio\" con buzón y contraseña es invisible como agente y suele tener MFA desactivado."},
+    {f:"entra",t:"agent",l:"access_token (usuario del agente)",title:"Token de la cuenta de usuario del agente",d:"idtyp es user, pero no es una persona: xms_sub_fct lo aclara.",res:ok200(),
+     tok:{h:"access token · usuario del agente",claims:[["aud","https://graph.microsoft.com",0],["idtyp","user",1,"Por sí solo no separa persona de agente.","user"],["xms_sub_fct","\"… 13\"",1,"Contiene 13: el sujeto es la cuenta de usuario de un agente.","app"],["xms_act_fct","\"… 11\"",0],["upn","agente.backoffice@contoso-lab.onmicrosoft.com",0],["scp","Mail.Send",0]]},
+     should:"Las APIs que autorizan por idtyp también miran xms_sub_fct.",
+     ifnot:"Una política que confía en idtyp = user trata al agente como si fuera una persona."},
+    {f:"agent",t:"api",l:"POST /me/sendMail",title:"Envía correo desde su buzón",d:"El destinatario ve un remitente que es un agente, no una persona.",req:"POST https://graph.microsoft.com/v1.0/me/sendMail\nAuthorization: Bearer eyJ0eXAiOiJKV1Qi…"}
+   ]}
+  ],
+  impact:{
+    pi:[2,"Depende de los permisos asignados a cada identidad de agente. La ganancia es el gobierno: inventario, responsable y Conditional Access propio."],
+    cred:[1,"Sin secreto: el blueprint usa managed identity o federación."],
+    tok:[2,"Bearer de ~1 h. Conditional Access para agentes puede cortar el canje por riesgo."]},
+  controls:["Una identidad por agente con un responsable (sponsor), como recomienda Microsoft.","Conditional Access para agentes y revisiones de acceso periódicas.","Permisos mínimos por identidad de agente, no por blueprint.","Desactivar la identidad del agente como kill-switch."],
+  logs:[["Sign-in logs (agentSignIn)","Los inicios de sesión de agentes se filtran por tipo: identidad de agente, blueprint o usuario de agente.",`// Portal: filtros "Agent type" e "Is Agent"
+GET https://graph.microsoft.com/beta/auditLogs/signIns
+  ?$filter=signInEventTypes/any(t: t eq 'servicePrincipal')
+   and agent/agentType eq 'AgentIdentity'`],
+        ["AuditLogs","Creación de identidades, cambios de permisos y de responsable.",`AuditLogs
+| where TargetResources has "agente"
+| project TimeGenerated, OperationName, InitiatedBy`]],
+  matrix:["Ninguna (blueprint con MI o federación)","Según modo","~1 h","Sí, para agentes (M365 E7, o Agent 365 + P1)",2,"Según permisos del agente"]
+},
+{
+  id:"sidecar", name:"Sidecar de identidad", tag:"Entra Auth SDK", kind:"mix", preview:true,
+  who:"una identidad de agente, sin credencial en el código", ca:{subject:"agent"},
+  lanes:[["agent","Agente","contenedor"],["side","Sidecar","Entra Auth SDK"],["entra","Entra ID","emisor de tokens"],["api","Microsoft Graph","API"]],
+  steps:[
+    {f:"agent",t:"side",l:"GET /AuthorizationHeader/graph",title:"El agente pide un encabezado, no un secreto",d:"El sidecar corre en un segundo contenedor junto al agente y no expone puerto al host.",
+     req:"GET http://localhost:5000/AuthorizationHeaderUnauthenticated/graph?AgentIdentity=<AgentIdentity>",
+     should:"El código del agente, y por lo tanto el contexto del modelo, nunca ve una credencial.",
+     ifnot:"Con la credencial en el código del agente, un prompt injection que logre imprimir variables de entorno la exfiltra."},
+    {f:"side",t:"entra",l:"T1 + canje (firmado con MI)",ca:true,title:"El sidecar hace los canjes",d:"Con SignedAssertionFromManagedIdentity obtiene T1 para el blueprint y lo canjea por el token del agente. Es el flujo de Agent ID, encapsulado.",
+     req:tokReq(["client_id=<AgentIdentity>","scope=https://graph.microsoft.com/.default","client_assertion=<T1>","grant_type=client_credentials"]),
+     checks:[["Configuración","AzureAd__ClientCredentials con SignedAssertionFromManagedIdentity","Un ClientSecret de desarrollo que llega a producción"],["APIs permitidas","Solo las configuradas en DownstreamApis","Una configuración amplia vuelve al sidecar un emisor de tokens para todo"]]},
+    {f:"entra",t:"side",l:"access_token (agente)",title:"Entra emite el token del agente",d:"El sidecar lo guarda en caché y lo renueva.",res:ok200(),
+     tok:{h:"access token · agente vía sidecar",claims:[["aud","https://graph.microsoft.com",0],["idtyp","app",1,"Modo autónomo. En OBO aparece el usuario.","app"],["appid","<AgentIdentity>",1,"","app"],["xms_act_fct","\"… 11\"",0],["exp","iat + ~1 h",0]]}},
+    {f:"side",t:"agent",l:"Authorization: Bearer …",title:"Con /AuthorizationHeader el token sí llega al agente",d:"Es la opción más simple, pero el token pasa por la memoria del agente.",
+     res:"HTTP/1.1 200 OK\n\n{ \"authorizationHeader\": \"Bearer eyJ0eXAiOiJKV1Qi…\" }",
+     flag:["note","Para que el agente nunca toque el token, usa /DownstreamApi: el sidecar hace la llamada por él."]},
+    {f:"agent",t:"side",l:"POST /DownstreamApi/graph",title:"El agente delega la llamada completa",d:"El agente indica una API por nombre. Solo existen las APIs que configuraste en el sidecar.",
+     req:"POST http://localhost:5000/DownstreamApiUnauthenticated/graph?AgentIdentity=<AgentIdentity>&optionsOverride.RelativePath=me/messages"},
+    {f:"side",t:"api",l:"GET /me/messages (token del agente)",title:"El sidecar llama a la API",d:"El token nunca sale del sidecar."},
+    {f:"agent",t:"side",l:"POST /DownstreamApi/rrhh",cls:"block",title:"El ataque pide una API no configurada",d:"La instrucción oculta pide llamar a una API que el agente no debería usar.",
+     res:"HTTP/1.1 404 Not Found\n\n{ \"title\": \"Service not configured\",\n  \"detail\": \"Downstream API 'rrhh' not configured\" }",
+     flag:["block","Esa API no está configurada en el sidecar: no hay token que pedir ni llamada que hacer."]},
+    {f:"agent",t:"entra",l:"salta el sidecar: token directo de la MI",cls:"danger",title:"El límite del patrón",d:"Si el agente ejecuta código, puede pedirle un token a la managed identity del contenedor sin pasar por el sidecar.",
+     req:"GET http://169.254.169.254/metadata/identity/oauth2/token\n  ?api-version=2018-02-01&resource=https://storage.azure.com\nMetadata: true",
+     should:"El contenedor del agente no alcanza el endpoint de identidad y el agente no ejecuta código arbitrario.",
+     ifnot:"El sidecar saca la credencial del código, pero no aísla la red: la MI entrega tokens a cualquier proceso del grupo de contenedores.",
+     flag:["danger","Este es el escenario que el laboratorio comprueba con evidencia real."]}
+  ],
+  impact:{
+    pi:[1,"Si el agente solo habla con el sidecar y usa /DownstreamApi, el radio es la lista de APIs configuradas."],
+    cred:[1,"No hay credencial en el código ni en la configuración del agente."],
+    tok:[2,"Con /AuthorizationHeader el token pasa por el agente (~1 h). Con /DownstreamApi no sale del sidecar."]},
+  controls:["Usar /DownstreamApi en lugar de /AuthorizationHeader cuando se pueda.","Lista cerrada de APIs y scopes en el sidecar.","Sin puerto al host y sin acceso del agente al endpoint de identidad.","No dar al agente herramientas de ejecución de código en el mismo contenedor."],
+  logs:[["Sign-in logs (agentSignIn)","Las emisiones del sidecar aparecen como sign-ins de la identidad de agente.",`GET https://graph.microsoft.com/beta/auditLogs/signIns
+  ?$filter=signInEventTypes/any(t: t eq 'servicePrincipal')
+   and agent/agentType eq 'AgentIdentity'`],
+        ["AADManagedIdentitySignInLogs","Tokens de la MI del contenedor que no pasaron por el sidecar: la señal del bypass.",`AADManagedIdentitySignInLogs
+| where ServicePrincipalName == "agente-mi"
+| where ResourceDisplayName != "AzureADTokenExchange"`]],
+  matrix:["Ninguna en el agente (la tiene el sidecar)","Según modo","~1 h","Sí, para agentes",1,"Solo las APIs configuradas"]
+},
+{
+  id:"chain", name:"Cadena de agentes", tag:"OBO encadenado", kind:"user",
+  who:"una cadena de agentes actuando por Ana", ca:{subject:"user"},
+  lanes:[["user","Usuaria","Ana"],["orq","Orquestador","agente 1"],["esp","Especialista","agente 2"],["entra","Entra ID","emisor de tokens"],["api","API de RRHH","aguas abajo"]],
+  steps:[
+    {f:"user",t:"orq",l:"Bearer (aud = orquestador)",title:"Ana habla con el orquestador",d:"El orquestador recibe un token emitido para él.",flag:["note","Microsoft documenta el OBO de un salto; esta cadena aplica el mismo canje en cada salto y no figura como patrón documentado. El laboratorio la prueba."],
+     tok:{h:"token 1 · para el orquestador",claims:[["aud","api://orquestador",1,"","app"],["oid","Ana",1,"","user"],["scp","tareas",0]]}},
+    {f:"orq",t:"entra",l:"OBO → aud = especialista",ca:true,title:"Primer salto",d:"El orquestador canjea el token de Ana por uno para el agente especialista. Ana sigue siendo el sujeto.",
+     req:tokReq(["client_id=orquestador","client_assertion=<credencial del orquestador>","grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer","assertion=<token 1>","requested_token_use=on_behalf_of","scope=api://especialista/consultas"]),
+     checks:[["Scope del salto","Solo lo que el especialista necesita","Pedir .default trae todo lo consentido"],["Conditional Access","Se reevalúa a Ana en cada canje","Un salto sin evaluación es un atajo"]]},
+    {f:"entra",t:"orq",l:"token 2 (aud = especialista)",title:"Token para el especialista",d:"azp cambia en cada salto; oid se mantiene.",
+     tok:{h:"token 2 · para el especialista",claims:[["aud","api://especialista",1,"","app"],["oid","Ana",1,"","user"],["azp","orquestador",1,"Quién hizo este salto.","app"],["scp","consultas",0]]}},
+    {f:"orq",t:"esp",l:"Bearer token 2",title:"El orquestador delega",d:"El especialista valida que el token es para él.",
+     checks:[["Audiencia","aud = api://especialista","Si el especialista acepta el token 1, cualquiera que lo tenga se salta al orquestador"]],
+     should:"Cada agente valida aud y rechaza tokens que no son suyos.",
+     ifnot:"Un agente que acepta cualquier token de Ana se vuelve un \"confused deputy\": hace por otros lo que Ana nunca pidió."},
+    {f:"esp",t:"entra",l:"OBO → aud = API de RRHH",title:"Segundo salto",d:"El especialista canjea a su vez. La cadena puede crecer, y con ella la distancia entre lo que Ana pidió y lo que pasa.",
+     req:tokReq(["client_id=especialista","client_assertion=<credencial del especialista>","grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer","assertion=<token 2>","requested_token_use=on_behalf_of","scope=api://rrhh/lectura"])},
+    {f:"esp",t:"api",l:"GET /planilla (token 3)",cls:"danger",title:"La API ve a Ana y al último agente",d:"La API de RRHH ve oid = Ana y azp = especialista. No ve al orquestador ni la instrucción original.",
+     flag:["danger","Si el documento envenenado llegó al orquestador, el especialista ejecuta la orden con un token perfectamente válido. Para reconstruir la cadena hay que correlacionar los sign-ins de cada salto."],
+     should:"Cada salto reduce scopes y queda registrado; la API puede exigir un contexto de autenticación para datos sensibles.",
+     ifnot:"Con .default en cada salto, el último agente acumula todo lo que Ana tenía consentido en la cadena."}
+  ],
+  impact:{
+    pi:[3,"Una instrucción inyectada en el primer agente viaja por toda la cadena con la identidad de Ana."],
+    cred:[2,"Cada agente tiene su credencial: más superficie que custodiar."],
+    tok:[2,"Cada token sirve para un salto, si cada agente valida aud."]},
+  controls:["Validar aud en cada agente de la cadena.","Scopes explícitos por salto, nunca .default.","Correlacionar sign-ins por usuario y ventana de tiempo para reconstruir la cadena.","Contexto de autenticación (acrs) para datos sensibles al final de la cadena."],
+  logs:[["AADNonInteractiveUserSignInLogs","Cada salto OBO es un inicio no interactivo de Ana con una app distinta.",`AADNonInteractiveUserSignInLogs
+| where UserPrincipalName == "ana.torres@contoso-lab.onmicrosoft.com"
+| where TimeGenerated > ago(15m)
+| project TimeGenerated, AppDisplayName, ResourceDisplayName, CorrelationId`]],
+  matrix:["Una por agente de la cadena","Sí","60 a 90 min por salto","Sí, en cada canje",3,"Lo que Ana consintió a lo largo de la cadena"]
+},
+{
+  id:"mcp", name:"Servidor MCP", tag:"OAuth en MCP 2025-11-25", kind:"user",
+  who:"un cliente MCP actuando por la usuaria", ca:{subject:"user"},
+  lanes:[["agent","Agente","cliente MCP"],["mcp","Servidor MCP","recurso protegido"],["entra","Entra ID","servidor de autorización"],["api","API del CRM","aguas abajo"]],
+  variants:[
+   {id:"ok",label:"Flujo según la especificación",steps:[
+    {f:"agent",t:"mcp",l:"tools/call sin token",title:"Primera llamada",d:"El agente intenta usar una herramienta del servidor MCP.",
+     req:"POST https://mcp-crm.contoso-lab.com/mcp\nContent-Type: application/json\n\n{ \"jsonrpc\": \"2.0\", \"method\": \"tools/call\", \"params\": { \"name\": \"buscar_cliente\" }, \"id\": 1 }"},
+    {f:"mcp",t:"agent",l:"401 + resource_metadata + scope",title:"El servidor dice quién lo protege",d:"El encabezado WWW-Authenticate apunta a su metadata (RFC 9728) e indica los scopes que necesita.",
+     res:"HTTP/1.1 401 Unauthorized\nWWW-Authenticate: Bearer resource_metadata=\"https://mcp-crm.contoso-lab.com/.well-known/oauth-protected-resource\",\n                  scope=\"crm.read\"",
+     should:"El cliente toma los scopes del desafío como autoritativos y no pide más.",
+     ifnot:"Un cliente que pide todos los scopes disponibles convierte cualquier herramienta en acceso total al CRM."},
+    {f:"agent",t:"mcp",l:"GET /.well-known/oauth-protected-resource",title:"Lee la metadata del recurso",d:"La metadata debe incluir authorization_servers. Luego el cliente descubre el servidor de autorización (RFC 8414 u OpenID Connect Discovery).",
+     res:"HTTP/1.1 200 OK\n\n{\n  \"resource\": \"https://mcp-crm.contoso-lab.com\",\n  \"authorization_servers\": [\"https://login.microsoftonline.com/7c1e04aa-…/v2.0\"],\n  \"scopes_supported\": [\"crm.read\"]\n}"},
+    {f:"agent",t:"entra",l:"/authorize  PKCE S256 + resource",ca:true,title:"Pide un token para ese servidor",d:"El cliente usa un registro previo, un Client ID Metadata Document o registro dinámico, en ese orden. PKCE con S256 y el parámetro resource (RFC 8707) son obligatorios.",
+     req:`GET https://${LOGIN}/${TID}/oauth2/v2.0/authorize\n  ?client_id=<cliente MCP>\n  &response_type=code\n  &code_challenge=E9Melhoa2Owv…&code_challenge_method=S256\n  &resource=https://mcp-crm.contoso-lab.com\n  &scope=api://mcp-crm/crm.read`,
+     checks:[["PKCE","S256","La especificación obliga al cliente a no continuar si el servidor no anuncia PKCE"],["resource","URI canónica del servidor MCP, en authorize y en token","Sin resource, el token no queda atado a un destinatario"],["Conditional Access","Se evalúa a Ana","Un servidor MCP fuera de Entra queda sin políticas"]]},
+    {f:"entra",t:"agent",l:"access_token (aud = MCP)",title:"Token con audiencia del servidor MCP",d:"El token resultante solo sirve en el servidor MCP.",res:ok200(),
+     tok:{h:"access token · para el servidor MCP",claims:[["aud","api://mcp-crm",1,"El servidor MCP debe rechazar cualquier token con otra audiencia.","app"],["scp","crm.read",0],["oid","Ana",1,"","user"],["azp","agente (cliente MCP)",0],["exp","iat + 60 a 90 min",0]]}},
+    {f:"agent",t:"mcp",l:"tools/call  Bearer",title:"Llamada autenticada",d:"El token va en el encabezado Authorization, nunca en la URL.",
+     req:"POST https://mcp-crm.contoso-lab.com/mcp\nAuthorization: Bearer eyJ0eXAiOiJKV1Qi…\n\n{ \"method\": \"tools/call\", \"params\": { \"name\": \"buscar_cliente\" } }",
+     checks:[["Audiencia","El servidor valida que el token fue emitido para él","401 si no; la especificación lo exige con MUST"],["Scope","crm.read alcanza para esta herramienta","403 insufficient_scope y el cliente pide más scopes de forma incremental"]]},
+    {f:"mcp",t:"entra",l:"OBO: token propio para el CRM",title:"El servidor pide su propio token",d:"Para hablar con la API del CRM, el servidor MCP hace su propio canje en nombre de Ana. La especificación le prohíbe reenviar el token que recibió.",
+     req:tokReq(["client_id=mcp-crm","client_assertion=<credencial del servidor MCP>","grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer","assertion=<token de Ana para MCP>","requested_token_use=on_behalf_of","scope=api://crm/clientes.read"])},
+    {f:"mcp",t:"api",l:"GET /clientes (token del servidor)",title:"Llamada aguas abajo",d:"Cada salto tiene su token, su audiencia y su registro."}
+   ]},
+   {id:"pass",label:"Antipatrón: token passthrough",bad:true,steps:[
+    {f:"agent",t:"mcp",l:"tools/call  Bearer (aud = CRM)",cls:"danger",title:"El agente manda un token del CRM al servidor MCP",d:"El servidor MCP acepta cualquier token que le llegue, sin mirar la audiencia.",
+     tok:{h:"access token · emitido para el CRM",claims:[["aud","api://crm",1,"La audiencia es el CRM, no el servidor MCP. Debería rechazarlo.","app"],["scp","crm.read crm.write",1,"Todo lo que Ana puede en el CRM."],["oid","Ana",0,"","user"],["exp","iat + 60 a 90 min",0]]},
+     should:"El servidor MCP rechaza con 401 un token cuya audiencia no es él.",
+     ifnot:"El servidor acepta y acumula tokens del CRM reutilizables.",
+     flag:["danger","La especificación lo prohíbe: el servidor MUST NOT aceptar ni reenviar tokens emitidos para otro recurso."]},
+    {f:"mcp",t:"api",l:"reenvía el mismo token",cls:"danger",title:"El servidor lo reenvía tal cual",d:"El CRM ve un token válido de Ana y no sabe que pasó por un servidor MCP.",
+     flag:["danger","Se pierde el control de audiencia y la auditoría del salto. Un servidor MCP comprometido acumula tokens reutilizables."]},
+    {f:"api",t:"mcp",l:"200 OK",title:"La API responde",d:"Nadie en la cadena puede reconstruir qué componente hizo qué."}
+   ]}
+  ],
+  impact:{
+    pi:[1,"Con audiencia bien validada, un servidor MCP manipulado solo puede usar el token contra sí mismo."],
+    cred:[2,"Depende del registro del cliente. Clientes públicos con PKCE no guardan secreto."],
+    tok:[2,"Una hora y solo contra el servidor MCP."]},
+  badImpact:{pi:"Con token passthrough, un servidor MCP manipulado reutiliza el token de Ana contra cualquier API que acepte esa audiencia.",tok:"El token robado sirve directamente contra la API del CRM, saltándose el servidor MCP."},
+  controls:["Validar aud en el servidor MCP y rechazar tokens de otros destinatarios.","Nunca reenviar el token del cliente: usar OBO o una identidad propia aguas abajo.","Usar resource en authorize y en token.","Inventario de servidores MCP aprobados y sus scopes."],
+  logs:[["SigninLogs","El consentimiento y el inicio de sesión de Ana para el servidor MCP.",`SigninLogs
+| where ResourceDisplayName == "mcp-crm"
+| project TimeGenerated, UserPrincipalName, AppDisplayName, ConditionalAccessStatus`],
+        ["Logs del servidor MCP","Cada tools/call con el oid, azp y aud recibidos. Si falta aud, falta el control.",`// registrar por llamada: tool, oid, azp, aud, resultado
+// alerta: aud != "api://mcp-crm"`]],
+  matrix:["Del cliente (PKCE, sin secreto)","Sí","60 a 90 min","Sí, el de la usuaria",1,"Solo el servidor MCP (aud)"]
+}
+];
+
+/* Conditional Access simulado */
+const CA = {
+  pol:{mfa:true, device:false, loc:true, risk:true},
+  ctx:{auth:"mfa", device:"managed", loc:"office", risk:"low"},
+  licAgents:false
+};
+const POL = [
+  ["mfa","Exigir MFA",["user"]],
+  ["device","Exigir dispositivo administrado",["user"]],
+  ["loc","Bloquear fuera de ubicaciones confiables",["user","workload","agentuser"]],
+  ["risk","Bloquear riesgo alto",["user","workload","agent","agentuser"]]
+];
+const SUBJ = {user:"la usuaria (Ana)",workload:"el service principal del agente",mi:"una managed identity",agent:"la identidad del agente",agentuser:"la cuenta de usuario del agente"};
+function caSubject(){ const v = curVar(); return (v && v.ca) || cur().ca.subject }
+function evalCA(){
+  const s = caSubject();
+  if(s==="mi") return {st:"na",code:"Sin evaluación",msg:"Conditional Access no evalúa managed identities. Ningún control de acceso condicional puede frenar este token."};
+  if(s==="agent" && !CA.licAgents) return {st:"na",code:"Sin política",msg:"Conditional Access para agentes requiere Microsoft 365 E7, o Agent 365 con Entra P1 o Microsoft 365 E3. Sin esa licencia, el token se emite sin evaluación.",sub:"Activa la licencia en el simulador para ver el efecto."};
+  const applies = POL.filter(p=>CA.pol[p[0]] && p[2].includes(s));
+  for(const [k] of applies){
+    if(k==="risk" && CA.ctx.risk==="high") return {st:"block",code:"AADSTS53003",msg:`Bloqueado por Conditional Access: riesgo alto para ${SUBJ[s]}.`};
+    if(k==="loc" && CA.ctx.loc==="other") return {st:"block",code:"AADSTS53003",msg:`Bloqueado por Conditional Access: ${SUBJ[s]} llama desde una ubicación no confiable.`};
+    if(k==="device" && CA.ctx.device==="unknown") return {st:"block",code:"AADSTS53000",msg:"El dispositivo no está administrado ni es conforme."};
+    if(k==="mfa" && CA.ctx.auth==="pwd") return {st:"block",code:"AADSTS50076",msg:"Se exige MFA. En un flujo no interactivo el canje falla hasta que Ana complete MFA."};
+  }
+  const none = applies.length===0;
+  return {st:"ok",code:"Concedido",msg: none ? `Ninguna política activa aplica a ${SUBJ[s]}: el token se emite sin condiciones.` : `Las políticas activas se cumplen para ${SUBJ[s]}.`, sub: s==="workload"?"Para workload identities solo aplican ubicación y riesgo, con Workload Identities Premium.":""};
+}
+
+const $ = s => document.querySelector(s);
+const NS = "http://www.w3.org/2000/svg";
+let mi = 0, vi = 0, step = 0, atk = "pi", itab = "what", timer = null;
+const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const cur = () => M[mi];
+const curVar = () => cur().variants ? cur().variants[vi] : null;
+const steps = () => curVar() ? curVar().steps : cur().steps;
+const caIdx = () => steps().findIndex(s=>s.ca);
+function blockedAfter(){ const i = caIdx(); if(i<0) return -1; return evalCA().st==="block" ? i : -1; }
+
+function hl(txt){
+  return esc(txt).replace(/^(GET|POST|HTTP\/1\.1)( \S+)?/gm,(m,a,b)=>`<span class="k">${a}</span>${b||""}`)
+    .replace(/([?&\n]\s*)([a-z_]+)=/g,(m,a,b)=>`${a}<span class="k">${b}</span>=`)
+    .replace(/(AADSTS\d+|40[13] [A-Za-z ].*|"error"[^\n]*)/g,'<span class="e">$1</span>');
+}
+
+function renderMethods(){
+  $("#methods").innerHTML = M.map((m,i)=>`<button class="m" role="tab" id="tab-${m.id}" aria-selected="${i===mi}">
+    <b>${esc(m.name)}</b><small><span class="kind ${m.kind}">${m.kind==="app"?"app":m.kind==="user"?"usuario":"agente"}</span>${esc(m.tag)}${m.preview?'<span class="preview">PREVIEW</span>':""}</small></button>`).join("");
+  M.forEach((m,i)=>$("#tab-"+m.id).onclick=()=>select(i));
+}
+
+function renderVariants(){
+  const v = cur().variants;
+  $("#variants").innerHTML = v ? v.map((x,i)=>`<button class="var ${x.bad?"bad":""}" id="var-${x.id}" aria-pressed="${i===vi}">${esc(x.label)}</button>`).join("") : "";
+  if(v) v.forEach((x,i)=>$("#var-"+x.id).onclick=()=>{stop();vi=i;step=1;renderAll(false)});
+}
+
+function renderSeq(){
+  const m = cur(), st = steps(), L = m.lanes, W = 780, top = 64, row = 50;
+  const x = i => 70 + i*((W-140)/(L.length-1));
+  const H = top + st.length*row + 24;
+  const blk = blockedAfter(), res = evalCA();
+  const svg = document.createElementNS(NS,"svg");
+  svg.setAttribute("viewBox",`0 0 ${W} ${H}`); svg.setAttribute("role","img");
+  svg.setAttribute("aria-label",`Diagrama de secuencia: ${m.name}`);
+  let h = "";
+  L.forEach((l,i)=>{
+    h += `<line class="lane-l" x1="${x(i)}" y1="${top-10}" x2="${x(i)}" y2="${H-8}"/>`;
+    h += `<g class="lane-h"><rect x="${x(i)-62}" y="6" width="124" height="44" rx="6"/><text x="${x(i)}" y="25" text-anchor="middle">${esc(l[1])}</text><text class="sub" x="${x(i)}" y="40" text-anchor="middle">${esc(l[2])}</text></g>`;
+  });
+  const idx = id => L.findIndex(l=>l[0]===id);
+  st.forEach((s,i)=>{
+    const a = x(idx(s.f)), b = x(idx(s.t)), y = top + i*row + 26;
+    const skip = blk>=0 && i>blk;
+    const state = skip ? "skip" : i+1 < step ? "done" : i+1 === step ? "cur" : "";
+    const danger = s.cls==="danger" || (s.flag && s.flag[0]==="danger");
+    const cls = `msg ${state} ${s.cls||""} ${danger?"danger":""} ${blk===i?"danger":""}`;
+    const dir = b>a?1:-1, ax = b - dir*4, mid=(a+b)/2;
+    h += `<g class="${cls}" data-i="${i}"><rect class="hit" x="${Math.min(a,b)}" y="${y-22}" width="${Math.abs(b-a)}" height="${row-6}"/>
+      <line x1="${a}" y1="${y}" x2="${ax}" y2="${y}"/><path d="M${ax} ${y} l${-dir*8} -5 M${ax} ${y} l${-dir*8} 5"/>
+      <text x="${mid}" y="${y-7}" text-anchor="middle"><tspan class="n">${i+1}</tspan>  ${esc(s.l)}</text></g>`;
+    if(s.ca){ const c = res.st==="block"?"block":res.st==="na"?"na":""; h += `<g><rect class="ca-pill ${c}" x="${Math.max(a,b)+6}" y="${y-8}" width="28" height="15" rx="3"/><text class="ca-mark" x="${Math.max(a,b)+20}" y="${y+3}" text-anchor="middle">CA</text></g>`; }
+    if(state==="cur") h += `<circle class="pkt" r="4.5" cx="${a}" cy="${y}"><animate attributeName="cx" from="${a}" to="${b}" dur="1.1s" repeatCount="indefinite"/></circle>`;
+  });
+  svg.innerHTML = h;
+  svg.querySelectorAll(".msg").forEach(g=>g.addEventListener("click",()=>{stop();step=+g.dataset.i+1;render()}));
+  $("#seq").replaceChildren(svg);
+}
+
+const ITABS = [["what","Qué pasa"],["req","Request"],["res","Response"],["tok","Token"],["chk","Verificaciones"],["ifnot","¿Y si no?"]];
+function renderInsp(){
+  const st = steps(), s = step ? st[step-1] : null, blk = blockedAfter();
+  let tok = null;
+  if(s) for(let i=step-1;i>=0;i--){ if(st[i].tok){tok={...st[i].tok,at:i+1};break} }
+  const has = {what:true, req:!!(s&&s.req), res:!!(s&&(s.res||(s.ca&&blk===step-1))), tok:!!tok, chk:!!(s&&s.checks), ifnot:!!(s&&(s.ifnot||s.should))};
+  if(!has[itab]) itab = "what";
+  $("#itabs").innerHTML = ITABS.map(([k,l])=>`<button class="itab ${k==="ifnot"?"ifnot":""}" role="tab" id="it-${k}" aria-selected="${itab===k}" ${has[k]?"":"disabled"}>${l}</button>`).join("");
+  ITABS.forEach(([k])=>$("#it-"+k).onclick=()=>{ if(has[k]){itab=k;renderInsp()} });
+  if(!s){ $("#insp").innerHTML = `<p class="step-t">${esc(cur().name)}</p><p class="step-d">Pulsa ▶ o haz clic en una flecha. En cada paso tienes el request, la respuesta, el token, lo que se verifica y, en rojo, qué pasa si ese control no está.</p>`; return; }
+  let h = `<p class="step-t">${step}. ${esc(s.title)}</p>`;
+  const blockedHere = s.ca && blk===step-1, r = evalCA();
+  if(itab==="what"){
+    h += `<p class="step-d">${esc(s.d)}</p>`;
+    if(blockedHere) h += `<div class="flag danger">${esc(r.code)}: ${esc(r.msg)} El flujo se detiene aquí.</div>`;
+    else if(s.ca) h += `<div class="flag ${r.st==="ok"?"block":"note"}">Conditional Access: ${esc(r.code)}. ${esc(r.msg)}</div>`;
+    if(s.flag) h += `<div class="flag ${s.flag[0]}">${esc(s.flag[1])}</div>`;
+    if(blk>=0 && step-1>blk) h += `<div class="flag note">Este paso no ocurre: Conditional Access bloqueó el flujo en el paso ${blk+1}.</div>`;
+  }
+  if(itab==="req") h += `<pre>${hl(s.req)}</pre>`;
+  if(itab==="res") h += `<pre>${hl(blockedHere ? `HTTP/1.1 400 Bad Request\nContent-Type: application/json\n\n{\n  "error": "invalid_grant",\n  "error_description": "${r.code}: ${r.msg}",\n  "error_codes": [${r.code.replace("AADSTS","")}]\n}` : s.res)}</pre>`;
+  if(itab==="tok") h += `<div class="cred"><div class="cred-h"><span>${esc(tok.h)}</span><em>${tok.at===step?"en este paso":"vigente desde el paso "+tok.at}</em></div><dl class="claims">` +
+      tok.claims.map(c=>`<div class="claim ${c[2]?"k":""} ${c[4]||""}"><dt>${esc(c[0])}</dt><dd>${esc(c[1])}</dd>${c[3]?`<span class="why">${esc(c[3])}</span>`:""}</div>`).join("") + `</dl></div>`;
+  if(itab==="chk") h += `<ul class="checks">${s.checks.map(c=>`<li><span class="ok">✓</span><span><b>${esc(c[0])}</b>: ${esc(c[1])}</span><span class="no">Si falla o no existe: ${esc(c[2])}</span></li>`).join("")}</ul>`;
+  if(itab==="ifnot") h += `<div class="ifnot-box"><div class="pair"><div class="should"><h4>Cómo debe ser</h4>${esc(s.should||"—")}</div><div class="not"><h4>Qué pasa si no</h4>${esc(s.ifnot||"—")}</div></div></div>`;
+  $("#insp").innerHTML = h;
+}
+
+function renderCA(){
+  const s = caSubject(), r = evalCA();
+  const sw = (id,label,on,na) => `<label class="sw ${na?"na":""}"><input type="checkbox" id="${id}" ${on?"checked":""}><span></span>${esc(label)}</label>`;
+  const seg = (k,opts) => `<div class="seg" role="group">${opts.map(([v,l])=>`<button data-k="${k}" data-v="${v}" aria-pressed="${CA.ctx[k]===v}">${esc(l)}</button>`).join("")}</div>`;
+  $("#ca").innerHTML = `<div class="ca-grid">
+    <fieldset><legend>Políticas activas</legend>
+      ${POL.map(p=>sw("p-"+p[0],p[1],CA.pol[p[0]],!p[2].includes(s))).join("")}
+      ${sw("p-lic","Licencia de Conditional Access para agentes",CA.licAgents,s!=="agent")}
+    </fieldset>
+    <fieldset><legend>Situación de ${esc(SUBJ[s])}</legend>
+      <div class="ca-row">Autenticación ${seg("auth",[["mfa","con MFA"],["pwd","solo contraseña"]])}</div>
+      <div class="ca-row">Dispositivo ${seg("device",[["managed","administrado"],["unknown","desconocido"]])}</div>
+      <div class="ca-row">Ubicación ${seg("loc",[["office","red confiable"],["other","otra red"]])}</div>
+      <div class="ca-row">Riesgo ${seg("risk",[["low","bajo"],["high","alto"]])}</div>
+    </fieldset></div>
+    <div class="ca-res ${r.st}"><b>${esc(r.code)}</b><span>${esc(r.msg)}</span>${r.sub?`<small>${esc(r.sub)}</small>`:""}</div>`;
+  POL.forEach(p=>$("#p-"+p[0]).onchange=e=>{CA.pol[p[0]]=e.target.checked;onCA()});
+  $("#p-lic").onchange=e=>{CA.licAgents=e.target.checked;onCA()};
+  document.querySelectorAll(".seg button").forEach(b=>b.onclick=()=>{CA.ctx[b.dataset.k]=b.dataset.v;onCA()});
+}
+function onCA(){ stop(); renderCA(); renderSeq(); renderInsp(); renderBar(); }
+
+function renderBar(){
+  $("#counter").textContent = `paso ${step} / ${steps().length}`;
+  $("#who").textContent = (curVar() && curVar().who) || cur().who;
+  $("#play").textContent = timer ? "❚❚" : "▶";
+  $("#play").setAttribute("aria-label", timer ? "Pausar" : "Reproducir");
+}
+
+function renderImpact(){
+  $("#atks").innerHTML = ATTACKS.map(a=>`<button class="atk" id="atk-${a.id}" aria-pressed="${a.id===atk}">${esc(a.label)}</button>`).join("");
+  ATTACKS.forEach(a=>$("#atk-"+a.id).onclick=()=>{atk=a.id;renderImpact()});
+  const m = cur(); let [lv,txt] = m.impact[atk];
+  if(curVar() && curVar().bad && m.badImpact && m.badImpact[atk]){ lv=3; txt=m.badImpact[atk]; }
+  $("#impact").innerHTML = `<div class="meter l${lv}" aria-hidden="true"><i></i><i></i><i></i></div>
+    <span class="lvl l${lv}">${["","Acotado","Medio","Alto"][lv]}</span><p>${esc(txt)}</p>
+    <h3>Controles que reducen el radio</h3><ul class="ctl">${m.controls.map(c=>`<li>${esc(c)}</li>`).join("")}</ul>`;
+}
+
+function renderLogs(){
+  $("#logs").innerHTML = cur().logs.map((l,i)=>`<div class="log"><code>${esc(l[0])}</code><p>${esc(l[1])}</p><pre id="kql-${i}">${esc(l[2])}</pre><button class="copy" data-k="${i}">Copiar consulta</button></div>`).join("") +
+   `<p style="margin:0;font-size:12px;color:var(--muted)">Microsoft Graph activity logs requiere Entra ID P1 o P2.</p>`;
+  document.querySelectorAll(".copy").forEach(b=>b.onclick=async()=>{
+    const pre = $("#kql-"+b.dataset.k);
+    try{ await navigator.clipboard.writeText(pre.textContent); b.textContent="Copiado"; }
+    catch(e){ const r=document.createRange(); r.selectNodeContents(pre); const s=getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent="Seleccionado: copia con Ctrl+C"; }
+    setTimeout(()=>b.textContent="Copiar consulta",1800);
+  });
+}
+
+function renderMatrix(){
+  const lv = ["","Acotado","Medio","Alto"];
+  $("#matrix").innerHTML = `<thead><tr><th>Método</th><th>Credencial que custodiar</th><th>Usuario en el token</th><th>Vida del token</th><th>Conditional Access</th><th>Si manipulan al agente</th></tr></thead><tbody>` +
+    M.map((m,i)=>{const r=m.matrix;return `<tr id="row-${m.id}" class="${i===mi?"sel":""}" tabindex="0"><td>${esc(m.name)}</td><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td><td>${esc(r[3])}</td><td><span class="pill l${r[4]}">${lv[r[4]]}</span> ${esc(r[5])}</td></tr>`}).join("") + `</tbody>`;
+  M.forEach((m,i)=>{const r=$("#row-"+m.id); r.onclick=()=>select(i); r.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();select(i)}}});
+}
+
+const VERIF = [
+  ["Vida por defecto del access token: aleatoria entre 60 y 90 minutos","doc","https://learn.microsoft.com/en-us/entra/identity-platform/configurable-token-lifetimes"],
+  ["Refresh token: 90 días por defecto, 24 horas en apps de una sola página","doc","https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens"],
+  ["Conditional Access para workload identities: requiere Workload Identities Premium, cubre service principals de un tenant, no cubre managed identities, solo bloquea","doc","https://learn.microsoft.com/en-us/entra/identity/conditional-access/workload-identity"],
+  ["Managed identity: la plataforma cachea tokens alrededor de 24 horas por recurso","doc","https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/managed-identities-faq"],
+  ["Managed identity en ACI: IMDS en 169.254.169.254 con Metadata: true (Linux)","doc","https://learn.microsoft.com/en-us/azure/container-instances/container-instances-managed-identity"],
+  ["Credencial federada: audiencia api://AzureADTokenExchange y subject de GitHub repo:org/repo:environment:nombre","doc","https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation-create-trust"],
+  ["Auth code: PKCE recomendado para todo tipo de cliente; state recomendado","doc","https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow"],
+  ["OBO: parámetros del canje y error de Conditional Access devuelto al intermediario","doc","https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-on-behalf-of-flow"],
+  ["idtyp es opcional; Entra lo emite por defecto solo en tokens app-only","doc","https://learn.microsoft.com/en-us/entra/identity-platform/access-token-claims-reference"],
+  ["Listar usuarios exige User.ReadBasic.All, User.Read.All o Directory.Read.All","doc","https://learn.microsoft.com/en-us/graph/api/user-list"],
+  ["RBAC for Applications acota permisos de Exchange a buzones; Sites.Selected a sitios","doc","https://learn.microsoft.com/en-us/exchange/permissions-exo/application-rbac"],
+  ["Continuous Access Evaluation: Exchange, Teams y SharePoint Online, latencia de hasta 15 minutos","doc","https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-continuous-access-evaluation"],
+  ["Códigos AADSTS7000215, 50011, 50013, 65001, 50076, 53000, 53003 y 501481","doc","https://learn.microsoft.com/en-us/entra/identity-platform/reference-error-codes"],
+  ["Agent ID: flujos autónomo (fmi_path), OBO (Tc con aud = blueprint) y cuenta de usuario del agente (user_fic)","doc","https://learn.microsoft.com/en-us/entra/agent-id/agent-autonomous-app-oauth-flow"],
+  ["Claims de agente: xms_act_fct contiene 11, xms_sub_fct contiene 13, xms_par_app_azp","doc","https://learn.microsoft.com/en-us/entra/agent-id/agent-token-claims"],
+  ["Conditional Access para agentes: licencias M365 E7, o Agent 365 con Entra P1 o M365 E3; no se evalúa en el canje intermedio","doc","https://learn.microsoft.com/en-us/entra/identity/conditional-access/agent-id"],
+  ["Sign-ins de agentes: filtros Agent type e Is Agent; filtro de Graph agent/agentType","doc","https://learn.microsoft.com/en-us/entra/agent-id/manage-agent-identities-admin"],
+  ["Sidecar: endpoints, parámetro AgentIdentity, optionsOverride.RelativePath, respuesta authorizationHeader y 404 para API no configurada","doc","https://learn.microsoft.com/en-us/entra/msidweb/agent-id-sdk/endpoints"],
+  ["MCP: resource_metadata, PKCE S256, resource en authorize y token, validación de audiencia y prohibición de token passthrough","doc","https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization"],
+  ["Tablas StorageBlobLogs con RequesterObjectId, AuthenticationType y StatusCode","doc","https://learn.microsoft.com/en-us/azure/azure-monitor/reference/tables/storagebloblogs"],
+  ["Microsoft Graph activity logs requiere Entra ID P1 o P2","doc","https://learn.microsoft.com/en-us/entra/fundamentals/licensing"],
+  ["Vida real (exp) de un token de managed identity","lab",""],
+  ["Cuerpo exacto de los 403 de Graph y de Storage (incluido AuthorizationPermissionMismatch)","lab",""],
+  ["Valor de ClientCredentialType para credenciales federadas en los sign-in logs","lab",""],
+  ["Que el agente pueda saltarse el sidecar pidiendo el token a la managed identity","lab",""],
+  ["Cadena de agentes con OBO en cada salto: no figura como patrón documentado","inf",""],
+  ["Simulador de Conditional Access: aproximación didáctica, el motor real combina más condiciones","inf",""]
+];
+const CLAIMS = [
+  ["aud","Para quién es el token.","Si la API no lo valida, acepta tokens emitidos para otros servicios."],
+  ["iss","Quién lo emitió (tenant).","Tokens de otro tenant aceptados por error."],
+  ["idtyp","app en tokens app-only (claim opcional; en tokens de usuario hay que habilitarlo).","No separa persona de cuenta de usuario de agente: mira xms_sub_fct."],
+  ["appid / azp","El cliente que pidió el token.","Sin él no sabes qué agente actuó."],
+  ["oid","Objeto del sujeto (usuario o service principal).","Autorizar por nombre en vez de oid permite suplantación."],
+  ["roles","Permisos de aplicación.","Valen para todo el tenant."],
+  ["scp","Permisos delegados.","Pedir .default trae todo lo consentido."],
+  ["amr / acrs","Cómo se autenticó y qué contexto se exigió.","Datos sensibles sin acrs aceptan cualquier autenticación."],
+    ["xms_act_fct","Facetas del actor, separadas por espacios (11 = identidad de agente).","Sin mirarlo, un agente parece una app más."],
+  ["xms_sub_fct","Facetas del sujeto (13 = cuenta de usuario de agente).","Un agente con idtyp = user pasa por persona."],
+  ["xms_par_app_azp","App padre (blueprint).","Registrar sí; autorizar con él, no."]
+];
+const ERRS = [
+  ["AADSTS7000215","Secreto de cliente inválido.","Credencial expirada o rotada."],
+  ["AADSTS50011","redirect_uri no registrada.","Posible intento de redirección."],
+  ["AADSTS50013","Assertion inválido (emisor, versión, expiración o formato).","En OBO, revisar que el token de entrada sea el esperado."],
+  ["AADSTS65001","Falta consentimiento.","El agente pide algo que nadie aprobó."],
+  ["AADSTS50076","Se exige MFA.","El canje no interactivo no puede completar MFA."],
+  ["AADSTS53000","Dispositivo no conforme.","Política de dispositivo administrado."],
+  ["AADSTS53003","Bloqueado por Conditional Access.","Ubicación, riesgo u otra condición."],
+  ["403 AuthorizationPermissionMismatch","RBAC de Storage no cubre la operación (no figura en la lista oficial de códigos; lo confirma el laboratorio).","El agente intentó salir de su carril."],
+  ["403 insufficient_scope (MCP)","Falta un scope para la herramienta.","El cliente pide más de forma incremental."]
+];
+function renderRef(){
+  const lab={doc:"Documentado",lab:"Lo confirma el laboratorio",inf:"Inferido o didáctico"};
+  $("#verif").innerHTML = `<thead><tr><th>Afirmación</th><th>Estado</th><th>Fuente</th></tr></thead><tbody>${VERIF.map(v=>`<tr><td>${esc(v[0])}</td><td><span class="pill ${v[1]}">${lab[v[1]]}</span></td><td>${v[2]?`<a href="${esc(v[2])}" target="_blank" rel="noopener">${esc(v[2].replace(/^https:\/\/(learn\.microsoft\.com\/en-us\/)?/,""))}</a>`:"—"}</td></tr>`).join("")}</tbody>`;
+  $("#claimsref").innerHTML = `<thead><tr><th>Claim</th><th>Qué dice</th><th>Por qué importa</th></tr></thead><tbody>${CLAIMS.map(c=>`<tr><td><code>${esc(c[0])}</code></td><td>${esc(c[1])}</td><td>${esc(c[2])}</td></tr>`).join("")}</tbody>`;
+  $("#errref").innerHTML = `<thead><tr><th>Error</th><th>Qué significa</th><th>Lectura de seguridad</th></tr></thead><tbody>${ERRS.map(c=>`<tr><td><code>${esc(c[0])}</code></td><td>${esc(c[1])}</td><td>${esc(c[2])}</td></tr>`).join("")}</tbody>`;
+}
+
+function render(){ renderBar(); renderSeq(); renderInsp(); }
+function renderAll(full){ renderVariants(); render(); renderCA(); renderImpact(); if(full!==false){ renderMethods(); renderLogs(); renderMatrix(); } }
+function select(i){ stop(); mi=i; vi=0; step=0; itab="what"; renderAll(); try{history.replaceState(null,"","#"+M[i].id)}catch(e){} }
+function stop(){ if(timer){clearInterval(timer);timer=null} }
+function maxStep(){ const b = blockedAfter(); return b>=0 ? b+1 : steps().length; }
+function play(){
+  if(timer){stop();renderBar();return}
+  if(step>=maxStep()) step=0;
+  timer = setInterval(()=>{ if(step>=maxStep()){stop();renderBar();return} step++; render(); }, 2200);
+  step++; render();
+}
+$("#play").onclick = play;
+$("#next").onclick = ()=>{stop(); step=Math.min(step+1,steps().length); render()};
+$("#prev").onclick = ()=>{stop(); step=Math.max(step-1,0); render()};
+$("#reset").onclick = ()=>{stop(); step=0; render()};
+document.addEventListener("keydown",e=>{ if(e.target.closest("button,tr,input,label")) return; if(e.key==="ArrowRight") $("#next").click(); if(e.key==="ArrowLeft") $("#prev").click(); });
+addEventListener("hashchange",()=>{const i=M.findIndex(m=>"#"+m.id===location.hash); if(i>=0&&i!==mi) select(i)});
+
+const start = M.findIndex(m=>"#"+m.id===location.hash);
+mi = start>=0 ? start : 0;
+step = 3; itab = "tok";
+renderRef(); renderAll();
+</script>
+
+</body>
+</html>
