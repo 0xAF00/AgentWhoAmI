@@ -29,7 +29,7 @@ Es un solo archivo, sin build y sin llamadas a APIs. Trae su propia Content-Secu
 | 6 | Entra Agent ID (preview) | Blueprint, identidad de agente y cuenta de usuario del agente, en sus tres modos: autónomo, en nombre de un usuario y como usuario del agente. |
 | 7 | Sidecar de identidad | Microsoft Entra ID Auth SDK como contenedor junto al agente: el agente pide el encabezado y nunca ve la credencial. |
 | 8 | Cadena de agentes | Orquestador y especialista con OBO en cada salto y validación de audiencia. |
-| 9 | Servidor MCP | Autorización de MCP 2025-11-25 (metadata RFC 9728, PKCE, `resource`), con la variante prohibida de reenvío de token. |
+| 9 | Servidor MCP | Autorización de MCP 2026-07-28 (metadata RFC 9728, PKCE, `resource`, validación de `iss` según RFC 9207), con la variante prohibida de reenvío de token. |
 
 ## Qué trae cada método
 
