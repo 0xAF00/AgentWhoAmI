@@ -174,7 +174,7 @@ td code{font:600 12px var(--f-mono);color:var(--app);white-space:nowrap}
 .pill{display:inline-block;font:600 10.5px var(--f-mono);padding:1px 6px;border-radius:3px;white-space:nowrap}
 .pill.l1{background:var(--good-soft);color:var(--good)} .pill.l2{background:var(--mid-soft);color:var(--mid)} .pill.l3{background:var(--bad-soft);color:var(--bad)}
 .pill.doc{background:var(--good-soft);color:var(--good)} .pill.lab{background:var(--mid-soft);color:var(--mid)} .pill.inf{background:var(--sunk);color:var(--muted)}
-#verif{min-width:760px} #verif td a{color:var(--app)}
+.srcs{margin:0;padding-left:18px;columns:2 320px;font-size:13px;line-height:1.7} .srcs a{color:var(--app);word-break:break-all}
 .ref{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
 @media (max-width:1020px){.ref{grid-template-columns:minmax(0,1fr)}}
 .ref table{min-width:520px}
@@ -258,8 +258,8 @@ footer a{color:inherit}
   </div>
 
   <section class="panel">
-    <h2>Qué está documentado y qué confirmará el laboratorio</h2>
-    <div class="tbl"><table id="verif"></table></div>
+    <h2>Fuentes oficiales</h2>
+    <ul id="srcs" class="srcs"></ul>
   </section>
 
   <footer>
@@ -863,35 +863,7 @@ function renderMatrix(){
   M.forEach((m,i)=>{const r=$("#row-"+m.id); r.onclick=()=>select(i); r.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();select(i)}}});
 }
 
-const VERIF = [
-  ["Vida por defecto del access token: aleatoria entre 60 y 90 minutos","doc","https://learn.microsoft.com/en-us/entra/identity-platform/configurable-token-lifetimes"],
-  ["Refresh token: 90 días por defecto, 24 horas en apps de una sola página","doc","https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens"],
-  ["Conditional Access para workload identities: requiere Workload Identities Premium, cubre service principals de un tenant, no cubre managed identities, solo bloquea","doc","https://learn.microsoft.com/en-us/entra/identity/conditional-access/workload-identity"],
-  ["Managed identity: la plataforma cachea tokens alrededor de 24 horas por recurso","doc","https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/managed-identities-faq"],
-  ["Managed identity en ACI: IMDS en 169.254.169.254 con Metadata: true (Linux)","doc","https://learn.microsoft.com/en-us/azure/container-instances/container-instances-managed-identity"],
-  ["Credencial federada: audiencia api://AzureADTokenExchange y subject de GitHub repo:org/repo:environment:nombre","doc","https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation-create-trust"],
-  ["Auth code: PKCE recomendado para todo tipo de cliente; state recomendado","doc","https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow"],
-  ["OBO: parámetros del canje y error de Conditional Access devuelto al intermediario","doc","https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-on-behalf-of-flow"],
-  ["idtyp es opcional; Entra lo emite por defecto solo en tokens app-only","doc","https://learn.microsoft.com/en-us/entra/identity-platform/access-token-claims-reference"],
-  ["Listar usuarios exige User.ReadBasic.All, User.Read.All o Directory.Read.All","doc","https://learn.microsoft.com/en-us/graph/api/user-list"],
-  ["RBAC for Applications acota permisos de Exchange a buzones; Sites.Selected a sitios","doc","https://learn.microsoft.com/en-us/exchange/permissions-exo/application-rbac"],
-  ["Continuous Access Evaluation: Exchange, Teams y SharePoint Online, latencia de hasta 15 minutos","doc","https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-continuous-access-evaluation"],
-  ["Códigos AADSTS7000215, 50011, 50013, 65001, 50076, 53000, 53003 y 501481","doc","https://learn.microsoft.com/en-us/entra/identity-platform/reference-error-codes"],
-  ["Agent ID: flujos autónomo (fmi_path), OBO (Tc con aud = blueprint) y cuenta de usuario del agente (user_fic)","doc","https://learn.microsoft.com/en-us/entra/agent-id/agent-autonomous-app-oauth-flow"],
-  ["Claims de agente: xms_act_fct contiene 11, xms_sub_fct contiene 13, xms_par_app_azp","doc","https://learn.microsoft.com/en-us/entra/agent-id/agent-token-claims"],
-  ["Conditional Access para agentes: licencias M365 E7, o Agent 365 con Entra P1 o M365 E3; no se evalúa en el canje intermedio","doc","https://learn.microsoft.com/en-us/entra/identity/conditional-access/agent-id"],
-  ["Sign-ins de agentes: filtros Agent type e Is Agent; filtro de Graph agent/agentType","doc","https://learn.microsoft.com/en-us/entra/agent-id/manage-agent-identities-admin"],
-  ["Sidecar: endpoints, parámetro AgentIdentity, optionsOverride.RelativePath, respuesta authorizationHeader y 404 para API no configurada","doc","https://learn.microsoft.com/en-us/entra/msidweb/agent-id-sdk/endpoints"],
-  ["MCP: resource_metadata, PKCE S256, resource en authorize y token, validación de audiencia y prohibición de token passthrough","doc","https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization"],
-  ["Tablas StorageBlobLogs con RequesterObjectId, AuthenticationType y StatusCode","doc","https://learn.microsoft.com/en-us/azure/azure-monitor/reference/tables/storagebloblogs"],
-  ["Microsoft Graph activity logs requiere Entra ID P1 o P2","doc","https://learn.microsoft.com/en-us/entra/fundamentals/licensing"],
-  ["Vida real (exp) de un token de managed identity","lab",""],
-  ["Cuerpo exacto de los 403 de Graph y de Storage (incluido AuthorizationPermissionMismatch)","lab",""],
-  ["Valor de ClientCredentialType para credenciales federadas en los sign-in logs","lab",""],
-  ["Que el agente pueda saltarse el sidecar pidiendo el token a la managed identity","lab",""],
-  ["Cadena de agentes con OBO en cada salto: no figura como patrón documentado","inf",""],
-  ["Simulador de Conditional Access: aproximación didáctica, el motor real combina más condiciones","inf",""]
-];
+const SRCS = ["https://learn.microsoft.com/en-us/entra/identity-platform/configurable-token-lifetimes", "https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens", "https://learn.microsoft.com/en-us/entra/identity/conditional-access/workload-identity", "https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/managed-identities-faq", "https://learn.microsoft.com/en-us/azure/container-instances/container-instances-managed-identity", "https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation-create-trust", "https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow", "https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-on-behalf-of-flow", "https://learn.microsoft.com/en-us/entra/identity-platform/access-token-claims-reference", "https://learn.microsoft.com/en-us/graph/api/user-list", "https://learn.microsoft.com/en-us/exchange/permissions-exo/application-rbac", "https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-continuous-access-evaluation", "https://learn.microsoft.com/en-us/entra/identity-platform/reference-error-codes", "https://learn.microsoft.com/en-us/entra/agent-id/agent-autonomous-app-oauth-flow", "https://learn.microsoft.com/en-us/entra/agent-id/agent-token-claims", "https://learn.microsoft.com/en-us/entra/identity/conditional-access/agent-id", "https://learn.microsoft.com/en-us/entra/agent-id/manage-agent-identities-admin", "https://learn.microsoft.com/en-us/entra/msidweb/agent-id-sdk/endpoints", "https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization", "https://learn.microsoft.com/en-us/azure/azure-monitor/reference/tables/storagebloblogs", "https://learn.microsoft.com/en-us/entra/fundamentals/licensing"];
 const CLAIMS = [
   ["aud","Para quién es el token.","Si la API no lo valida, acepta tokens emitidos para otros servicios."],
   ["iss","Quién lo emitió (tenant).","Tokens de otro tenant aceptados por error."],
@@ -917,8 +889,7 @@ const ERRS = [
   ["403 insufficient_scope (MCP)","Falta un scope para la herramienta.","El cliente pide más de forma incremental."]
 ];
 function renderRef(){
-  const lab={doc:"Documentado",lab:"Lo confirma el laboratorio",inf:"Inferido o didáctico"};
-  $("#verif").innerHTML = `<thead><tr><th>Afirmación</th><th>Estado</th><th>Fuente</th></tr></thead><tbody>${VERIF.map(v=>`<tr><td>${esc(v[0])}</td><td><span class="pill ${v[1]}">${lab[v[1]]}</span></td><td>${v[2]?`<a href="${esc(v[2])}" target="_blank" rel="noopener">${esc(v[2].replace(/^https:\/\/(learn\.microsoft\.com\/en-us\/)?/,""))}</a>`:"—"}</td></tr>`).join("")}</tbody>`;
+  $("#srcs").innerHTML = SRCS.map(u=>`<li><a href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https:\/\//,""))}</a></li>`).join("");
   $("#claimsref").innerHTML = `<thead><tr><th>Claim</th><th>Qué dice</th><th>Por qué importa</th></tr></thead><tbody>${CLAIMS.map(c=>`<tr><td><code>${esc(c[0])}</code></td><td>${esc(c[1])}</td><td>${esc(c[2])}</td></tr>`).join("")}</tbody>`;
   $("#errref").innerHTML = `<thead><tr><th>Error</th><th>Qué significa</th><th>Lectura de seguridad</th></tr></thead><tbody>${ERRS.map(c=>`<tr><td><code>${esc(c[0])}</code></td><td>${esc(c[1])}</td><td>${esc(c[2])}</td></tr>`).join("")}</tbody>`;
 }

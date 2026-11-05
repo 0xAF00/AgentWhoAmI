@@ -42,7 +42,7 @@ Es un solo archivo, sin build y sin llamadas a APIs. Trae su propia Content-Secu
 
 ## Fuentes
 
-Todo lo que la herramienta afirma está enlazado a la documentación oficial de Microsoft Learn o a la especificación de MCP. Al final de la página hay una tabla, "Qué está documentado y qué confirmará el laboratorio", que separa lo documentado de lo inferido.
+Todo lo que la herramienta afirma está enlazado a la documentación oficial de Microsoft Learn o a la especificación de MCP; la lista de fuentes está al final de la página. Donde un dato depende de la prueba en un tenant real, el paso lo indica.
 
 Los identificadores, usuarios y dominios de los ejemplos son ficticios (`contoso-lab`).
 
