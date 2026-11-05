@@ -174,7 +174,7 @@ td code{font:600 12px var(--f-mono);color:var(--app);white-space:nowrap}
 .pill{display:inline-block;font:600 10.5px var(--f-mono);padding:1px 6px;border-radius:3px;white-space:nowrap}
 .pill.l1{background:var(--good-soft);color:var(--good)} .pill.l2{background:var(--mid-soft);color:var(--mid)} .pill.l3{background:var(--bad-soft);color:var(--bad)}
 .pill.doc{background:var(--good-soft);color:var(--good)} .pill.lab{background:var(--mid-soft);color:var(--mid)} .pill.inf{background:var(--sunk);color:var(--muted)}
-.srcs{margin:0;padding-left:18px;columns:2 320px;font-size:13px;line-height:1.7} .srcs a{color:var(--app);word-break:break-all}
+
 .ref{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
 @media (max-width:1020px){.ref{grid-template-columns:minmax(0,1fr)}}
 .ref table{min-width:520px}
@@ -257,10 +257,6 @@ footer a{color:inherit}
     </section>
   </div>
 
-  <section class="panel">
-    <h2>Fuentes oficiales</h2>
-    <ul id="srcs" class="srcs"></ul>
-  </section>
 
   <footer>
     <span>Simulación con valores ficticios (tenant contoso-lab). Vida de tokens según valores por defecto de Microsoft Entra ID. El simulador de Conditional Access es una aproximación didáctica: el motor real combina más condiciones.</span>
@@ -863,7 +859,7 @@ function renderMatrix(){
   M.forEach((m,i)=>{const r=$("#row-"+m.id); r.onclick=()=>select(i); r.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();select(i)}}});
 }
 
-const SRCS = ["https://learn.microsoft.com/en-us/entra/identity-platform/configurable-token-lifetimes", "https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens", "https://learn.microsoft.com/en-us/entra/identity/conditional-access/workload-identity", "https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/managed-identities-faq", "https://learn.microsoft.com/en-us/azure/container-instances/container-instances-managed-identity", "https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation-create-trust", "https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow", "https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-on-behalf-of-flow", "https://learn.microsoft.com/en-us/entra/identity-platform/access-token-claims-reference", "https://learn.microsoft.com/en-us/graph/api/user-list", "https://learn.microsoft.com/en-us/exchange/permissions-exo/application-rbac", "https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-continuous-access-evaluation", "https://learn.microsoft.com/en-us/entra/identity-platform/reference-error-codes", "https://learn.microsoft.com/en-us/entra/agent-id/agent-autonomous-app-oauth-flow", "https://learn.microsoft.com/en-us/entra/agent-id/agent-token-claims", "https://learn.microsoft.com/en-us/entra/identity/conditional-access/agent-id", "https://learn.microsoft.com/en-us/entra/agent-id/manage-agent-identities-admin", "https://learn.microsoft.com/en-us/entra/msidweb/agent-id-sdk/endpoints", "https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization", "https://learn.microsoft.com/en-us/azure/azure-monitor/reference/tables/storagebloblogs", "https://learn.microsoft.com/en-us/entra/fundamentals/licensing"];
+
 const CLAIMS = [
   ["aud","Para quién es el token.","Si la API no lo valida, acepta tokens emitidos para otros servicios."],
   ["iss","Quién lo emitió (tenant).","Tokens de otro tenant aceptados por error."],
@@ -889,7 +885,6 @@ const ERRS = [
   ["403 insufficient_scope (MCP)","Falta un scope para la herramienta.","El cliente pide más de forma incremental."]
 ];
 function renderRef(){
-  $("#srcs").innerHTML = SRCS.map(u=>`<li><a href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https:\/\//,""))}</a></li>`).join("");
   $("#claimsref").innerHTML = `<thead><tr><th>Claim</th><th>Qué dice</th><th>Por qué importa</th></tr></thead><tbody>${CLAIMS.map(c=>`<tr><td><code>${esc(c[0])}</code></td><td>${esc(c[1])}</td><td>${esc(c[2])}</td></tr>`).join("")}</tbody>`;
   $("#errref").innerHTML = `<thead><tr><th>Error</th><th>Qué significa</th><th>Lectura de seguridad</th></tr></thead><tbody>${ERRS.map(c=>`<tr><td><code>${esc(c[0])}</code></td><td>${esc(c[1])}</td><td>${esc(c[2])}</td></tr>`).join("")}</tbody>`;
 }
